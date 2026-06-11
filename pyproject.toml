@@ -1,0 +1,33 @@
+[project]
+name = "quantsys"
+version = "0.1.0"
+description = "Auto-adaptive systematic trading system for Indian markets (NSE/BSE) via Angel One SmartAPI"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scipy>=1.12",
+    "statsmodels>=0.14",
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+# Execution layer (next phase) — kept out of core so the brain has zero broker deps
+broker = ["smartapi-python", "websocket-client", "pyotp", "logzero"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

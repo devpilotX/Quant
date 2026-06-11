@@ -1,0 +1,57 @@
+# quantsys base configuration.
+# Every value here overrides the typed defaults in quantsys/config/schema.py.
+# Tier ladder, risk limits, costs: see schema.py for the full documented set.
+#
+# NOTE ON MARKET DATA CONSTANTS (lot sizes, ADV, margins): these are sample
+# values verified June 2026 (NIFTY lot 65, BANKNIFTY lot 30 per NSE Jan-2026
+# revision). In live/paper runs the execution layer MUST refresh lot sizes,
+# tokens and ADV daily from the Angel One instrument master; these entries are
+# warm-start fallbacks, not authority.
+
+engine:
+  decision_bar_minutes: 5
+  index_symbol: NIFTY
+
+sizing:
+  base_risk_frac: 0.006          # 0.6% of equity at risk per unit trade
+
+vol_target:
+  annual_vol_target: 0.13
+
+drawdown:
+  daily_loss_limit: 0.025
+  max_drawdown: 0.18
+  kill_drawdown: 0.20
+
+# Costs: verified June 2026 — Budget 2026 STT (futures 0.05%, options 0.15%)
+# effective 2026-04-01; Angel One Rs 20/0.25% per order; re-verify quarterly.
+costs:
+  brokerage_flat: 20.0
+
+universe:
+  - {symbol: NIFTY,        kind: INDEX,  exchange: NSE, sector: index}
+  - {symbol: NIFTY-FUT,    kind: FUTURE, exchange: NFO, sector: index,  lot_size: 65, margin_rate: 0.125, adv: 250000}
+  - {symbol: BANKNIFTY-FUT, kind: FUTURE, exchange: NFO, sector: banks, lot_size: 30, margin_rate: 0.14, adv: 120000}
+  - {symbol: HDFCBANK,     kind: EQUITY, exchange: NSE, sector: banks,  adv: 18000000}
+  - {symbol: ICICIBANK,    kind: EQUITY, exchange: NSE, sector: banks,  adv: 16000000}
+  - {symbol: KOTAKBANK,    kind: EQUITY, exchange: NSE, sector: banks,  adv: 5000000}
+  - {symbol: AXISBANK,     kind: EQUITY, exchange: NSE, sector: banks,  adv: 9000000}
+  - {symbol: SBIN,         kind: EQUITY, exchange: NSE, sector: banks,  adv: 25000000}
+  - {symbol: TCS,          kind: EQUITY, exchange: NSE, sector: it,     adv: 3000000}
+  - {symbol: INFY,         kind: EQUITY, exchange: NSE, sector: it,     adv: 7000000}
+  - {symbol: HCLTECH,      kind: EQUITY, exchange: NSE, sector: it,     adv: 3500000}
+  - {symbol: WIPRO,        kind: EQUITY, exchange: NSE, sector: it,     adv: 9000000}
+  - {symbol: TECHM,        kind: EQUITY, exchange: NSE, sector: it,     adv: 3000000}
+  - {symbol: RELIANCE,     kind: EQUITY, exchange: NSE, sector: energy, adv: 9000000}
+  - {symbol: ONGC,         kind: EQUITY, exchange: NSE, sector: energy, adv: 12000000}
+  - {symbol: NTPC,         kind: EQUITY, exchange: NSE, sector: energy, adv: 14000000}
+  - {symbol: POWERGRID,    kind: EQUITY, exchange: NSE, sector: energy, adv: 12000000}
+  - {symbol: MARUTI,       kind: EQUITY, exchange: NSE, sector: auto,   adv: 700000}
+  - {symbol: TATAMOTORS,   kind: EQUITY, exchange: NSE, sector: auto,   adv: 25000000}
+  - {symbol: BAJAJ-AUTO,   kind: EQUITY, exchange: NSE, sector: auto,   adv: 600000}
+  - {symbol: TATASTEEL,    kind: EQUITY, exchange: NSE, sector: metals, adv: 35000000}
+  - {symbol: JSWSTEEL,     kind: EQUITY, exchange: NSE, sector: metals, adv: 4000000}
+  - {symbol: HINDALCO,     kind: EQUITY, exchange: NSE, sector: metals, adv: 8000000}
+  - {symbol: SUNPHARMA,    kind: EQUITY, exchange: NSE, sector: pharma, adv: 4000000}
+  - {symbol: CIPLA,        kind: EQUITY, exchange: NSE, sector: pharma, adv: 3500000}
+  - {symbol: DRREDDY,      kind: EQUITY, exchange: NSE, sector: pharma, adv: 2500000}
