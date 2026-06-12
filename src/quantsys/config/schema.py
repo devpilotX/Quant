@@ -205,6 +205,22 @@ class MeanRevConfig(BaseModel):
     expected_edge_R: float = 0.15
 
 
+class VolOptionsConfig(BaseModel):
+    # DISABLED by default: needs a live option-chain feed + OptionUniverseManager.
+    enabled: bool = False
+    priority: int = 3
+    rv_window: int = 80               # decision bars for realized vol
+    trend_window: int = 60
+    trend_deadband: float = 0.004     # |price/SMA-1| below this = flat
+    risk_free_rate: float = 0.066
+    iv_rich_ratio: float = 1.15       # IV/RV >= this -> sell premium
+    iv_cheap_ratio: float = 0.85      # IV/RV <= this (and trend) -> buy premium
+    min_days_to_expiry: int = 2
+    spread_width_steps: int = 2       # strikes between the two legs
+    otm_offset_steps: int = 2         # how far OTM the short strike sits
+    expected_edge_R: float = 0.10
+
+
 class InstrumentConfig(BaseModel):
     symbol: str
     token: str = ""
@@ -230,6 +246,7 @@ class AppConfig(BaseModel):
     costs: CostConfig = CostConfig()
     trend: TrendConfig = TrendConfig()
     meanrev: MeanRevConfig = MeanRevConfig()
+    voloptions: VolOptionsConfig = VolOptionsConfig()
     universe: list[InstrumentConfig] = []
 
 
