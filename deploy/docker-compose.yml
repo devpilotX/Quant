@@ -53,20 +53,51 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
+  # --- engine: choose ONE profile ---------------------------------------
+  # default (no profile): synthetic paper, for a dashboard demo with no broker.
   engine:
-    build:
-      context: ..
-      dockerfile: dashboard/backend/Dockerfile
+    profiles: ["demo"]
+    build: { context: .., dockerfile: dashboard/backend/Dockerfile }
     restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
       REDIS_URL: redis://redis:6379/0
-    # paper runner on synthetic data until the Angel One feed adapter lands;
-    # swap --synthetic for the live feed flag when the execution layer ships.
     command: ["python", "-m", "qsdash.bridge.runner",
               "--config", "/app/engine/config/base.yaml",
               "--synthetic", "--bars", "1000000", "--speed", "1.0"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # paper on LIVE Angel One data — the VPS validation profile (no real orders).
+  engine-paper:
+    profiles: ["paper"]
+    build: { context: .., dockerfile: dashboard/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
+      REDIS_URL: redis://redis:6379/0
+    command: ["python", "-m", "qsdash.bridge.live",
+              "--config", "/app/engine/config/base.yaml", "--paper"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  # REAL MONEY. Gated by livegate (adapter + QS_LIVE_ARMED + passing backtest).
+  # QS_LIVE_ARMED must be set in .env and is deliberately NOT settable from UI.
+  engine-live:
+    profiles: ["live"]
+    build: { context: .., dockerfile: dashboard/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
+      REDIS_URL: redis://redis:6379/0
+      QS_LIVE_ARMED: ${QS_LIVE_ARMED:-0}
+    command: ["python", "-m", "qsdash.bridge.live",
+              "--config", "/app/engine/config/base.yaml", "--live"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

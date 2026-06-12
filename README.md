@@ -156,6 +156,27 @@ events to the browser in real time.
   deployable-capital cap + clean book, and the engine rejects live until the
   Angel One execution adapter (roadmap 1) ships.
 
+## Backtester, execution & options (built 2026-06-12)
+
+- **`quantsys/backtest/`** — event-driven backtester driving the real
+  `decide()`; SimBroker fills with the CostModel; walk-forward IS-vs-OOS,
+  deflated Sharpe, Monte-Carlo, sensitivity sweep; `runstudy` CLI persists to
+  `backtest_runs`. **This is the go-live gate** — synthetic data correctly
+  yields a CLOSED verdict; real OOS edge after costs is required to open it.
+- **`quantsys/execution/`** — `Broker` interface + Angel One SmartAPI adapter
+  (TOTP session, instrument master, idempotent rate-limited OMS, MPP-agnostic
+  fills), WS tick→bar aggregation, reconciliation (broker=truth → freeze).
+  Built and unit-tested with a mock transport; **not yet run against the live
+  broker** (that's the paper-on-VPS step).
+- **`quantsys/options/`** + `strategies/voloptions.py` — self-contained
+  Black-Scholes + defined-risk vertical-spread vol sleeve (IV-vs-RV), a
+  registry drop-in, **disabled by default** pending a live option-chain feed.
+- **Two-lock go-live gate**: dashboard operator chain + engine `livegate`
+  (adapter + `QS_LIVE_ARMED` + passing real backtest). See `docs/GOLIVE.md`,
+  `docs/DECISIONS.md` (#17–26), and `deploy/scripts/preflight.py`.
+
+Test counts: **107 engine tests**, **39 dashboard backend tests**, all green.
+
 ## Roadmap (next phases, in order)
 
 1. **Execution layer**: SmartAPI adapter behind a `Broker` interface, WebSocket
