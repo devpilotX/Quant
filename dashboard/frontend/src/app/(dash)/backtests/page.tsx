@@ -64,6 +64,21 @@ export default function BacktestsPage() {
 
       {detail && (
         <>
+          {(() => {
+            const m = detail.metrics as Record<string, unknown>;
+            const verdict = m?.verdict as string | undefined;
+            if (!verdict) return null;
+            const synth = m?.is_synthetic === true;
+            const eligible = verdict.includes("Eligible for tiny-capital");
+            const tone = synth ? "border-warn/40 bg-warn/10 text-warn"
+              : eligible ? "border-up/40 bg-up/10 text-up"
+              : "border-down/40 bg-down/10 text-down";
+            return (
+              <div className={`rounded border px-3 py-2 text-xs ${tone}`}>
+                <b>Verdict:</b> {verdict}
+              </div>
+            );
+          })()}
           <Card title={`Run #${detail.id} — equity curve`}>
             {curve.length > 1 ? (
               <EChart height={260} option={lineOption(
