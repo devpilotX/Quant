@@ -88,20 +88,27 @@ class CommandConsumer:
             if target == r.mode:
                 raise _Reject(f"already in {target}")
             if target == "live":
-                # Execution adapter for Angel One is the next phase; refuse
-                # loudly rather than pretend. Paper -> live becomes possible
-                # only when a real broker adapter is wired in.
-                raise _Reject(
-                    "live execution adapter not installed yet — "
-                    "engine cannot trade real money in this build"
+                # Engine-side gate (defence in depth on top of the dashboard's
+                # operator chain): adapter health + out-of-band arm + a passed
+                # real-data backtest. Refuses on synthetic-only history.
+                from qsdash.bridge.livegate import live_gate
+
+                gate = live_gate(
+                    sess,
+                    adapter_present=getattr(r, "supports_live", False),
+                    adapter_connected=getattr(r, "adapter_connected", False),
                 )
-            # live -> paper or paper -> paper(capital change) path
+                if not gate.allowed:
+                    raise _Reject("live gate refused: " + "; ".join(gate.reasons))
+            # transition: flatten the OUTGOING book first if requested
             if p.get("flatten_first") and r.broker is not None:
                 r.broker.flatten_all(r.current_prices(), now_ist(),
                                      reason="mode switch flatten")
             r.mode = target
             self._set_rc(sess, "mode", target)
-            return {"ok": True, "mode": target}
+            return {"ok": True, "mode": target,
+                    "gate_run_id": getattr(gate, "passing_run_id", None)
+                    if target == "live" else None}
 
         if kind == "set_paper_capital":
             cap = float(p.get("capital", 0))

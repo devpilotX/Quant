@@ -63,6 +63,9 @@ class Runner:
         self.deployable_cap_abs: float | None = None
         self._disabled: set[str] = set()
         self._last_prices: dict[str, float] = {}
+        # the paper runner can NEVER trade real money — the live gate sees this
+        self.supports_live = False
+        self.adapter_connected = False
         self._load_runtime_config()
         self.broker.load_open_state()
         for sym, pos in self.broker.positions.items():
