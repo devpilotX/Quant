@@ -1,26 +1,57 @@
 @import "tailwindcss";
 
+/* Dark-first terminal palette. Dense, calm, high-contrast where it matters. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0b0e14;
+  --surface: #11151f;
+  --surface-2: #161b28;
+  --border: #232a3b;
+  --foreground: #d7dce6;
+  --muted: #8a93a6;
+  --accent: #4f8cff;
+  --green: #2fbf71;
+  --red: #e5484d;
+  --amber: #f5a524;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-line: var(--border);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-up: var(--green);
+  --color-down: var(--red);
+  --color-warn: var(--amber);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 13px;
 }
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a3247 transparent;
+}
+
+.num {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.live-dot { animation: pulse-live 2s ease-in-out infinite; }

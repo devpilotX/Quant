@@ -1,0 +1,131 @@
+# quantsys control plane @ quant.devpilotx.com
+# Engine and dashboard are SEPARATE containers sharing only Postgres+Redis:
+# a dashboard crash cannot touch trading, and vice-versa.
+#
+# First boot:
+#   cp .env.example .env   # fill secrets
+#   docker compose up -d postgres redis
+#   docker compose run --rm api python -m qsdash.cli init-db
+#   docker compose run --rm api python -m qsdash.cli create-operator --username <you>
+#   docker compose up -d
+
+name: quantsys
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quantsys
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: quantsys
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantsys"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: dashboard/backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
+      REDIS_URL: redis://redis:6379/0
+      ENV: prod
+      COOKIE_SECURE: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  engine:
+    build:
+      context: ..
+      dockerfile: dashboard/backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
+      REDIS_URL: redis://redis:6379/0
+    # paper runner on synthetic data until the Angel One feed adapter lands;
+    # swap --synthetic for the live feed flag when the execution layer ships.
+    command: ["python", "-m", "qsdash.bridge.runner",
+              "--config", "/app/engine/config/base.yaml",
+              "--synthetic", "--bars", "1000000", "--speed", "1.0"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  frontend:
+    build:
+      context: ../dashboard/frontend
+    restart: unless-stopped
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    depends_on:
+      - api
+
+  pgweb:
+    image: sosedoff/pgweb:latest
+    restart: unless-stopped
+    environment:
+      PGWEB_DATABASE_URL: postgres://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys?sslmode=disable
+    command: ["/usr/bin/pgweb", "--bind=0.0.0.0", "--listen=8081", "--prefix=dbadmin"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/quant.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/proxy_params_qs:/etc/nginx/proxy_params_qs:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot
+    depends_on:
+      - api
+      - frontend
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # renewal loop; first issuance is a one-off (see DEPLOY.md)
+    entrypoint: ["/bin/sh", "-c",
+                 "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+
+  backup:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c",
+                 "while :; do pg_dump -h postgres -U quantsys -Fc quantsys -f /backups/quantsys-$$(date +%Y%m%d-%H%M).dump && ls -1t /backups/*.dump | tail -n +15 | xargs -r rm; sleep 21600; done"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  certbot-etc:
+  certbot-www:

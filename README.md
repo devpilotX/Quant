@@ -139,6 +139,23 @@ C:\Users\Dipan\.venvs\quant\Scripts\python.exe -m pytest tests -q
 Secrets: real credentials belong in `.env` (gitignored), never in
 `.env.example` or YAML.
 
+## Dashboard & control plane (built 2026-06-12)
+
+`dashboard/` + `deploy/` contain the full live control plane for this engine:
+FastAPI backend (auth: argon2id + mandatory TOTP, lockout, CSRF, re-auth
+window; REST snapshots; websocket hub; command queue), the engine bridge
+(Recorder + PaperBroker with the real CostModel + CommandConsumer), and a
+Next.js 16 dark terminal UI with 12 live views including per-trade
+explainability straight from the decision audit trail. Postgres holds every
+decision/order/fill/position/equity tick; Redis (or PG LISTEN/NOTIFY) fans
+events to the browser in real time.
+
+- run locally: see `docs/DEPLOY.md` §4 · deploy: `docs/DEPLOY.md`
+- architecture: `docs/ARCHITECTURE.md` · every design call: `docs/DECISIONS.md`
+- safety: paper is default; LIVE requires fresh re-auth + typed phrase +
+  deployable-capital cap + clean book, and the engine rejects live until the
+  Angel One execution adapter (roadmap 1) ships.
+
 ## Roadmap (next phases, in order)
 
 1. **Execution layer**: SmartAPI adapter behind a `Broker` interface, WebSocket

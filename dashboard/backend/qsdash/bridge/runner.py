@@ -160,13 +160,14 @@ class Runner:
     def step(self, ts: datetime, bars: dict[str, Bar],
              data_source: str) -> None:
         """One decision bar: ingest -> post_bar -> decide -> execute -> record."""
+        known = {}
         for sym, bar in bars.items():
             hist = self.histories.get(sym)
             if hist is not None:
                 hist.append(bar)
                 self._last_prices[sym] = bar.close
-                self.recorder.record_bar(sym, self.cfg.engine.decision_bar_minutes,
-                                         bar)
+                known[sym] = bar
+        self.recorder.record_bars(self.cfg.engine.decision_bar_minutes, known)
 
         prices = self.current_prices()
         equity = self.broker.equity(prices)

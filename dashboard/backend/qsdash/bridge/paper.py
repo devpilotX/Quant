@@ -165,8 +165,11 @@ class PaperBroker:
             fees_total=cb.total, fees=fees, slippage=cb.slippage,
         ))
 
-        realized = self._apply_to_position(sess, intent, decision, decision_id,
-                                           qty, px, cb.total, inst, ts)
+        realized, strat_used, closed = self._apply_to_position(
+            sess, intent, decision, decision_id, qty, px, cb.total, inst, ts
+        )
+        self._attribute_pnl(sess, ts, strat_used, sym, decision,
+                            realized, cb.total, closed)
         # cash: trade flow + fees
         self.cash -= qty * px * inst.point_value
         self.cash -= cb.total
@@ -225,10 +228,12 @@ class PaperBroker:
 
     def _apply_to_position(self, sess, intent: OrderIntent, decision: Decision,
                            decision_id: int, qty: int, px: float, fees: float,
-                           inst: Instrument, ts: datetime) -> float:
-        """Average-price bookkeeping; one open PositionRow per symbol."""
+                           inst: Instrument, ts: datetime) -> tuple[float, str, bool]:
+        """Average-price bookkeeping; one open PositionRow per symbol.
+        Returns (realized_pnl, attributed_strategy, trade_closed)."""
         pos = self.positions.get(intent.symbol)
         realized = 0.0
+        closed = False
         row: PositionRow | None = None
         row_id = self._open_rows.get(intent.symbol)
         if row_id is not None:
@@ -248,7 +253,11 @@ class PaperBroker:
             sess.flush()
             self._open_rows[intent.symbol] = row.id
             self._publish_position(row, px)
-            return 0.0
+            return 0.0, intent.strategy, False
+
+        # exits often carry no strategy tag — attribute to the position's
+        strat = (row.strategy if row is not None and row.strategy
+                 else intent.strategy)
 
         same_side = (pos.qty > 0) == (qty > 0)
         if same_side:
@@ -260,15 +269,17 @@ class PaperBroker:
                 row.avg_price = pos.avg_price
                 row.fees_paid += fees
         else:
+            was_long = pos.qty > 0
             closing = min(abs(qty), abs(pos.qty))
             realized = closing * (px - pos.avg_price) * inst.point_value * (
-                1 if pos.qty > 0 else -1
+                1 if was_long else -1
             )
             remaining = pos.qty + qty
             if row is not None:
                 row.realized_pnl += realized
                 row.fees_paid += fees
             if remaining == 0:
+                closed = True
                 pos.qty = 0
                 if row is not None:
                     row.qty = 0
@@ -278,12 +289,13 @@ class PaperBroker:
                     row.exit_rationale = self._exit_rationale(decision, intent)
                 self.positions.pop(intent.symbol, None)
                 self._open_rows.pop(intent.symbol, None)
-            elif (remaining > 0) == (pos.qty > 0):
+            elif (remaining > 0) == was_long:
                 pos.qty = remaining  # partial close, same side remains
                 if row is not None:
                     row.qty = remaining
             else:
                 # flipped through zero: close the old row, open a new one
+                closed = True
                 if row is not None:
                     row.qty = 0
                     row.status = "closed"
@@ -302,15 +314,11 @@ class PaperBroker:
                 sess.flush()
                 self._open_rows[intent.symbol] = new_row.id
                 row = new_row
-
-            self._attribute_pnl(sess, ts, intent, decision, realized, fees,
-                                closed=(remaining == 0 or
-                                        (remaining > 0) != (pos.qty > 0)))
         if row is not None:
             self._publish_position(row, px)
-        return realized
+        return realized, strat, closed
 
-    def _attribute_pnl(self, sess, ts: datetime, intent: OrderIntent,
+    def _attribute_pnl(self, sess, ts: datetime, strategy: str, symbol: str,
                        decision: Decision, realized: float, fees: float,
                        closed: bool) -> None:
         date = ts.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -318,15 +326,16 @@ class PaperBroker:
             sess.query(PnlAttribution)
             .filter(PnlAttribution.date == date,
                     PnlAttribution.mode == self.mode,
-                    PnlAttribution.strategy == intent.strategy,
-                    PnlAttribution.symbol == intent.symbol,
+                    PnlAttribution.strategy == strategy,
+                    PnlAttribution.symbol == symbol,
                     PnlAttribution.regime == decision.regime.label)
             .first()
         )
         if bucket is None:
             bucket = PnlAttribution(
-                date=date, mode=self.mode, strategy=intent.strategy,
-                symbol=intent.symbol, regime=decision.regime.label,
+                date=date, mode=self.mode, strategy=strategy,
+                symbol=symbol, regime=decision.regime.label,
+                gross_pnl=0.0, fees=0.0, net_pnl=0.0, n_trades=0,
             )
             sess.add(bucket)
         bucket.gross_pnl += realized

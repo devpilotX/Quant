@@ -140,29 +140,44 @@ class RedisAsyncSubscriber(AsyncSubscriber):
 
 
 class PgAsyncSubscriber(AsyncSubscriber):
+    """LISTEN on a dedicated thread with a SYNC connection, bridged into the
+    event loop via call_soon_threadsafe. psycopg's async I/O needs a selector
+    loop, which uvicorn on Windows doesn't provide (Proactor) — the thread
+    approach works on every platform and event loop."""
+
     def __init__(self, dsn: str):
-        # psycopg (3) async connection in autocommit LISTEN mode
         self._dsn = dsn.replace("postgresql+psycopg://", "postgresql://")
 
     async def events(self) -> AsyncIterator[dict]:
+        import threading
+        import time
+
         import psycopg
 
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue[str] = asyncio.Queue(maxsize=10_000)
+
+        def _worker() -> None:
+            while True:
+                try:
+                    with psycopg.connect(self._dsn, autocommit=True) as conn:
+                        conn.execute(f"LISTEN {PG_CHANNEL}")
+                        log.info("pg LISTEN established")
+                        for notify in conn.notifies():
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, notify.payload
+                            )
+                except Exception as e:  # reconnect forever, loudly
+                    log.error("pg listener error: %s — reconnecting in 2s", e)
+                    time.sleep(2)
+
+        threading.Thread(target=_worker, daemon=True, name="pg-listen").start()
         while True:
+            payload = await queue.get()
             try:
-                aconn = await psycopg.AsyncConnection.connect(
-                    self._dsn, autocommit=True
-                )
-                async with aconn:
-                    await aconn.execute(f"LISTEN {PG_CHANNEL}")
-                    gen = aconn.notifies()
-                    async for notify in gen:
-                        try:
-                            yield json.loads(notify.payload)
-                        except json.JSONDecodeError:
-                            log.warning("bad event payload dropped")
-            except Exception as e:
-                log.error("pg subscriber error: %s — reconnecting in 2s", e)
-                await asyncio.sleep(2)
+                yield json.loads(payload)
+            except json.JSONDecodeError:
+                log.warning("bad event payload dropped")
 
 
 class NullAsyncSubscriber(AsyncSubscriber):

@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import sys
 from contextlib import asynccontextmanager
-
-# psycopg async (LISTEN/NOTIFY) cannot run on the Windows ProactorEventLoop
-if sys.platform == "win32":  # pragma: no cover
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

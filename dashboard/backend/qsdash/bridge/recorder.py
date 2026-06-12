@@ -163,14 +163,18 @@ class Recorder:
             sess.close()
             raise
 
-    def record_bar(self, symbol: str, tf_minutes: int, bar) -> None:
+    def record_bars(self, tf_minutes: int, bars: dict) -> None:
+        """One transaction per decision step for the whole bar batch."""
+        if not bars:
+            return
         sess = self._begin()
         try:
-            sess.merge(MarketBar(
-                symbol=symbol, tf_minutes=tf_minutes, ts=bar.ts,
-                open=bar.open, high=bar.high, low=bar.low,
-                close=bar.close, volume=bar.volume,
-            ))
+            for symbol, bar in bars.items():
+                sess.merge(MarketBar(
+                    symbol=symbol, tf_minutes=tf_minutes, ts=bar.ts,
+                    open=bar.open, high=bar.high, low=bar.low,
+                    close=bar.close, volume=bar.volume,
+                ))
             self._end(sess)
         except Exception:
             sess.rollback()
