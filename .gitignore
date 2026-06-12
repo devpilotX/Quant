@@ -29,3 +29,10 @@ dashboard/backend/.env
 secrets/
 pgdata/
 backups/*.dump
+
+# deployment report contains live credentials — NEVER commit
+VPS_DEPLOYMENT_REPORT.md
+
+# VPS-local: DB dumps and host-specific compose override
+deploy/backups/
+deploy/docker-compose.override.yml

@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 COPY pyproject.toml README.md /app/engine/
 COPY src /app/engine/src
 COPY config /app/engine/config
-RUN pip install /app/engine
+RUN pip install "/app/engine[broker]"
 
 COPY dashboard/backend /app/backend
 RUN pip install /app/backend

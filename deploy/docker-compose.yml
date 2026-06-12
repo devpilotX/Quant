@@ -59,6 +59,8 @@ services:
     profiles: ["demo"]
     build: { context: .., dockerfile: dashboard/backend/Dockerfile }
     restart: unless-stopped
+    # image HEALTHCHECK probes the API; engine runs the runner, so disable it
+    healthcheck: { disable: true }
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
@@ -75,6 +77,7 @@ services:
     profiles: ["paper"]
     build: { context: .., dockerfile: dashboard/backend/Dockerfile }
     restart: unless-stopped
+    healthcheck: { disable: true }
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
@@ -91,6 +94,7 @@ services:
     profiles: ["live"]
     build: { context: .., dockerfile: dashboard/backend/Dockerfile }
     restart: unless-stopped
+    healthcheck: { disable: true }
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
