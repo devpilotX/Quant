@@ -37,6 +37,7 @@ from quantsys.execution.angelone import AngelOneBroker
 from quantsys.execution.broker import BrokerError
 from quantsys.execution.marketdata import BarAggregator
 
+from qsdash.audit import notify_alert
 from qsdash.bridge.commands import CommandConsumer
 from qsdash.bridge.livebroker import LiveExecutionBroker
 from qsdash.bridge.paper import PaperBroker
@@ -46,6 +47,8 @@ from qsdash.db import SessionLocal, now_ist
 from qsdash.models import RuntimeConfig
 
 log = logging.getLogger("qsdash.live")
+
+FEED_STALE_S = 90  # no ticks for this long during market hours => alert
 
 
 class LiveRunner:
@@ -84,6 +87,11 @@ class LiveRunner:
         self._pending_bars: dict[str, Bar] = {}
         self._lock = threading.Lock()
         self.feed = None  # set by main() to the AngelWebSocketFeed (feed health)
+        # alert transition state (only alert on state CHANGES, not every bar)
+        self._last_kill: str | None = None
+        self._last_halted = False
+        self._feed_stale = False
+        self._started_monotonic = 0.0
         self.aggregator = BarAggregator(self.cfg.engine.decision_bar_minutes,
                                         self._on_completed_bar)
         self._publish_config_snapshot()
@@ -235,6 +243,7 @@ class LiveRunner:
         self.engine.post_bar(state)
         decision = self.engine.decide(state)
         decision_id = self.recorder.record_decision(decision, self.engine)
+        self._alert_on_decision(decision)
         try:
             self.broker.execute(decision, decision_id, prices, ts)
         except BrokerError as e:
@@ -258,6 +267,47 @@ class LiveRunner:
         self.commands.poll()
 
     # --------------------------------------------------------------- loop
+    def _alert_on_decision(self, decision) -> None:
+        """Raise an alert on a risk-state TRANSITION (kill priority over halt).
+        Best-effort; notify_alert swallows its own errors."""
+        kr = decision.kill_reason
+        if kr and kr != self._last_kill:
+            notify_alert(self.publisher, severity="crit", kind="kill",
+                         title=f"KILL: {kr}",
+                         body=f"{self.mode}: new risk blocked / positions flattened")
+        elif not kr and decision.halted and not self._last_halted:
+            notify_alert(self.publisher, severity="crit", kind="halted",
+                         title="Engine halted (risk veto)",
+                         body=f"{self.mode}: no new risk this bar")
+        elif (not kr and not decision.halted
+              and (self._last_kill or self._last_halted)):
+            notify_alert(self.publisher, severity="info", kind="recovered",
+                         title="Risk state cleared — engine running",
+                         body=self.mode)
+        self._last_kill = kr
+        self._last_halted = decision.halted
+
+    def _alert_on_feed(self, now: datetime) -> None:
+        """Alert on a market-data feed stale/recovery transition during hours."""
+        if self.feed is None or not is_session_open(now):
+            return
+        age = self.feed.seconds_since_tick()
+        if age is not None:
+            stale = age > FEED_STALE_S
+        else:  # never ticked: stale only after a grace period from start
+            stale = (time.monotonic() - self._started_monotonic) > FEED_STALE_S
+        if stale and not self._feed_stale:
+            notify_alert(self.publisher, severity="warn", kind="feed_stale",
+                         title="Market-data feed stale",
+                         body=f"{self.mode}: no ticks for "
+                              f"{round(age) if age is not None else '∞'}s; "
+                              "auto-reconnecting")
+            self._feed_stale = True
+        elif not stale and self._feed_stale:
+            notify_alert(self.publisher, severity="info", kind="feed_ok",
+                         title="Market-data feed recovered", body=self.mode)
+            self._feed_stale = False
+
     def _seed_equity_snapshot(self) -> None:
         """Write one equity point at startup so the dashboard shows starting
         capital straight away instead of 'no data' until the first bar
@@ -277,7 +327,12 @@ class LiveRunner:
     def run_forever(self, poll_seconds: float = 1.0) -> None:
         log.info("LiveRunner started mode=%s instruments=%d", self.mode,
                  len(self.instruments))
+        self._started_monotonic = time.monotonic()
         self._seed_equity_snapshot()
+        notify_alert(self.publisher, severity="info", kind="engine_start",
+                     title=f"Engine started ({self.mode})",
+                     body=f"instruments={len(self.instruments)} "
+                          "data_source=angelone")
         last_heartbeat = 0.0
         while True:
             now = now_ist()
@@ -296,6 +351,7 @@ class LiveRunner:
                         detail={"venue": self.mode, "data_source": "angelone",
                                 "feed_age_s": (round(feed_age, 1)
                                                if feed_age is not None else None)})
+                    self._alert_on_feed(now)
                     last_heartbeat = time.monotonic()
                 self.commands.poll()
             time.sleep(poll_seconds)

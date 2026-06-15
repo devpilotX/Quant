@@ -26,6 +26,7 @@ from quantsys.core.types import (
 )
 from quantsys.costs import CostModel
 
+from qsdash.audit import notify_alert
 from qsdash.bus import PgSyncPublisher, SyncPublisher
 from qsdash.db import SessionLocal, now_ist
 from qsdash.models import (
@@ -50,6 +51,9 @@ class PaperBroker:
         self.positions: dict[str, Position] = {}
         self.realized_total = 0.0
         self._open_rows: dict[str, int] = {}  # symbol -> positions.id
+        # trade alerts are collected during fills and emitted AFTER the fill
+        # transaction commits, so an alert only ever describes a persisted trade
+        self._pending_trade_alerts: list[dict] = []
 
     # ------------------------------------------------------------ helpers
     def load_open_state(self) -> None:
@@ -119,11 +123,13 @@ class PaperBroker:
             sess.commit()
         except Exception:
             sess.rollback()
+            self._pending_trade_alerts.clear()  # drop alerts for rolled-back fills
             raise
         finally:
             if isinstance(self.publisher, PgSyncPublisher):
                 self.publisher.bind(None)
             sess.close()
+        self._emit_trade_alerts()
 
     def _fill_one(self, sess, intent: OrderIntent, decision: Decision,
                   decision_id: int, prices: dict[str, float], ts: datetime) -> None:
@@ -253,6 +259,8 @@ class PaperBroker:
             sess.flush()
             self._open_rows[intent.symbol] = row.id
             self._publish_position(row, px)
+            self._queue_trade_alert("open", intent.symbol, intent.strategy,
+                                    qty, px)
             return 0.0, intent.strategy, False
 
         # exits often carry no strategy tag — attribute to the position's
@@ -289,6 +297,8 @@ class PaperBroker:
                     row.exit_rationale = self._exit_rationale(decision, intent)
                 self.positions.pop(intent.symbol, None)
                 self._open_rows.pop(intent.symbol, None)
+                self._queue_trade_alert("close", intent.symbol, strat, qty, px,
+                                        realized=realized)
             elif (remaining > 0) == was_long:
                 pos.qty = remaining  # partial close, same side remains
                 if row is not None:
@@ -302,6 +312,8 @@ class PaperBroker:
                     row.closed_at = ts
                     row.exit_decision_id = decision_id
                     row.exit_rationale = self._exit_rationale(decision, intent)
+                self._queue_trade_alert("close", intent.symbol, strat, qty, px,
+                                        realized=realized)
                 self.positions[intent.symbol] = Position(intent.symbol, remaining, px)
                 new_row = PositionRow(
                     mode=self.mode, symbol=intent.symbol, strategy=intent.strategy,
@@ -314,6 +326,8 @@ class PaperBroker:
                 sess.flush()
                 self._open_rows[intent.symbol] = new_row.id
                 row = new_row
+                self._queue_trade_alert("open", intent.symbol, intent.strategy,
+                                        remaining, px)
         if row is not None:
             self._publish_position(row, px)
         return realized, strat, closed
@@ -352,6 +366,27 @@ class PaperBroker:
             "status": row.status, "realized_pnl": row.realized_pnl,
         })
 
+    # --------------------------------------------------------------- alerts
+    def _queue_trade_alert(self, action: str, symbol: str, strategy: str,
+                           qty: int, px: float, realized: float | None = None) -> None:
+        if action == "open":
+            side = "LONG" if qty > 0 else "SHORT"
+            self._pending_trade_alerts.append(dict(
+                severity="info", kind="trade_open",
+                title=f"Opened {side} {abs(qty)} {symbol} @ {px:.2f}",
+                body=f"{self.mode} · strategy={strategy}"))
+        else:  # close
+            self._pending_trade_alerts.append(dict(
+                severity="info", kind="trade_close",
+                title=f"Closed {symbol}: realized {(realized or 0.0):+,.0f}",
+                body=f"{self.mode} · strategy={strategy} · exit @ {px:.2f}"))
+
+    def _emit_trade_alerts(self) -> None:
+        """Emit queued trade alerts AFTER the fill transaction committed."""
+        pending, self._pending_trade_alerts = self._pending_trade_alerts, []
+        for a in pending:
+            notify_alert(self.publisher, **a)
+
     # ------------------------------------------------------------- control
     def flatten_all(self, prices: dict[str, float], ts: datetime,
                     reason: str = "operator flatten") -> None:
@@ -375,11 +410,13 @@ class PaperBroker:
             sess.commit()
         except Exception:
             sess.rollback()
+            self._pending_trade_alerts.clear()
             raise
         finally:
             if isinstance(self.publisher, PgSyncPublisher):
                 self.publisher.bind(None)
             sess.close()
+        self._emit_trade_alerts()
 
 
 class _FlattenDecision:
