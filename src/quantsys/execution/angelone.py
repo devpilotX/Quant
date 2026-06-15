@@ -81,8 +81,9 @@ class AngelOneBroker:
         self._instruments: dict[str, Instrument] = {}
         self._token_to_symbol: dict[str, str] = {}
         self._orders = TokenBucket(10, 10, "orders")
-        # capacity 1 => no burst; Angel's historical limit trips on bursts
-        self._hist = TokenBucket(3, 1, "historical")
+        # 2/s, capacity 1 => no burst; Angel's historical limit trips on bursts
+        # and on sustained 3/s, so stay conservative and lean on retry/backoff.
+        self._hist = TokenBucket(2, 1, "historical")
         self._generic = TokenBucket(3, 3, "generic")
         self._client_to_broker: dict[str, str] = {}
 
@@ -235,16 +236,17 @@ class AngelOneBroker:
             # exponential backoff so the limiter window resets.
             resp = None
             last_err: Exception | None = None
-            for attempt in range(5):
-                if not self._hist.acquire(timeout=20):
+            for attempt in range(6):
+                if not self._hist.acquire(timeout=30):
                     raise BrokerError("historical rate limit timeout", retryable=True)
                 try:
                     resp = self._transport.getCandleData(params)
                     break
                 except Exception as e:  # pragma: no cover - network
                     last_err = e
-                    if attempt < 4:
-                        time.sleep(2 ** attempt)  # 1,2,4,8s — let the limit reset
+                    if attempt < 5:
+                        # 2,4,8,16,32s — long enough to outlast a per-minute cap
+                        time.sleep(min(32, 2 ** (attempt + 1)))
             if resp is None:
                 raise BrokerError(f"getCandleData {symbol} failed after retries: "
                                   f"{last_err}", retryable=True)
