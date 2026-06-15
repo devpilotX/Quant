@@ -140,3 +140,17 @@ def test_simbroker_realizes_pnl_on_close(cfg):
     t = brk.trades[0]
     assert t.pnl == pytest.approx(10 * (110 - 100) * inst.point_value)
     assert t.fees > 0
+
+
+def test_monte_carlo_flat_equity_does_not_crash():
+    """Short / flat-equity windows yield zero positive-variance bootstrap paths;
+    monte_carlo_resample must not crash on np.percentile([]) (the bug that
+    blocked persisting a bounded real backtest)."""
+    from quantsys.backtest.metrics import monte_carlo_resample
+
+    base = datetime(2024, 1, 1)
+    flat = [(base + timedelta(days=i), 1_000_000.0) for i in range(40)]
+    mc = monte_carlo_resample(flat, n_paths=100)
+    assert mc["insufficient_data"] is True
+    assert mc["sharpe_p50"] is None
+    assert mc["p_sharpe_negative"] == 1.0  # conservative: treated as worst

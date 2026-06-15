@@ -154,12 +154,19 @@ def monte_carlo_resample(daily_equity: list[tuple[object, float]],
         mdd, _ = _drawdown_stats(curve)
         mdds.append(mdd)
     sharpes_a, mdds_a = np.array(sharpes), np.array(mdds)
+
+    def _pct(a: np.ndarray, q: float) -> float | None:
+        return float(np.percentile(a, q)) if a.size else None
+
+    # No positive-variance paths (flat equity / ~no trades) => no Sharpe samples.
+    # Don't crash on np.percentile([]); report it and treat P(SR<0) as worst.
     return {
         "n_paths": n_paths,
-        "sharpe_p05": float(np.percentile(sharpes_a, 5)),
-        "sharpe_p50": float(np.percentile(sharpes_a, 50)),
-        "sharpe_p95": float(np.percentile(sharpes_a, 95)),
-        "p_sharpe_negative": float((sharpes_a < 0).mean()),
-        "max_dd_p50": float(np.percentile(mdds_a, 50)),
-        "max_dd_p95": float(np.percentile(mdds_a, 95)),
+        "sharpe_p05": _pct(sharpes_a, 5),
+        "sharpe_p50": _pct(sharpes_a, 50),
+        "sharpe_p95": _pct(sharpes_a, 95),
+        "p_sharpe_negative": float((sharpes_a < 0).mean()) if sharpes_a.size else 1.0,
+        "max_dd_p50": _pct(mdds_a, 50),
+        "max_dd_p95": _pct(mdds_a, 95),
+        "insufficient_data": sharpes_a.size == 0,
     }
