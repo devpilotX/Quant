@@ -53,6 +53,10 @@ def main() -> None:
                     help="write to backtest_runs (needs qsdash + DB)")
     ap.add_argument("--quick", action="store_true",
                     help="smaller sweep grid (faster; lower n_trials)")
+    ap.add_argument("--max-bars", type=int, default=0,
+                    help="replay: cap to the most recent N merged bars (0=all). "
+                         "Intraday HMM refits make the full multi-year 5-min "
+                         "history impractically slow; bound it here.")
     ap.add_argument("--label", default="")
     args = ap.parse_args()
 
@@ -63,6 +67,8 @@ def main() -> None:
 
     if args.replay:
         bars = list(replay_bars(args.replay, syms))
+        if args.max_bars and len(bars) > args.max_bars:
+            bars = bars[-args.max_bars:]
         source = f"replay:{args.replay}"
     else:
         bars = list(synthetic_bars(syms, datetime(2026, 1, 1) - timedelta(days=0),
