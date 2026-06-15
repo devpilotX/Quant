@@ -24,7 +24,8 @@ CFG="/app/engine/config/base.yaml"
 DC="docker compose"
 [ "$(id -u)" -eq 0 ] || DC="sudo docker compose"
 
-run() { $DC --profile paper run --rm -v "${DATA_VOL}:/app/data" \
+# -T: no TTY, so this runs unattended from cron / systemd / nohup
+run() { $DC --profile paper run --rm -T -v "${DATA_VOL}:/app/data" \
           --no-deps engine-paper "$@"; }
 
 echo "[$(date -Is)] === fetch ${INTERVAL} (from ${START} for new symbols) ==="
