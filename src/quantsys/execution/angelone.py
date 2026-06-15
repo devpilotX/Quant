@@ -81,7 +81,8 @@ class AngelOneBroker:
         self._instruments: dict[str, Instrument] = {}
         self._token_to_symbol: dict[str, str] = {}
         self._orders = TokenBucket(10, 10, "orders")
-        self._hist = TokenBucket(3, 3, "historical")
+        # capacity 1 => no burst; Angel's historical limit trips on bursts
+        self._hist = TokenBucket(3, 1, "historical")
         self._generic = TokenBucket(3, 3, "generic")
         self._client_to_broker: dict[str, str] = {}
 
@@ -229,13 +230,24 @@ class AngelOneBroker:
                 "fromdate": win_start.strftime("%Y-%m-%d %H:%M"),
                 "todate": win_end.strftime("%Y-%m-%d %H:%M"),
             }
-            if not self._hist.acquire(timeout=20):
-                raise BrokerError("historical rate limit timeout", retryable=True)
-            try:
-                resp = self._transport.getCandleData(params)
-            except Exception as e:  # pragma: no cover - network
-                raise BrokerError(f"getCandleData {symbol} failed: {e}",
-                                  retryable=True)
+            # Angel's historical endpoint rate-limits aggressively; a single
+            # 429 must NOT abort the whole symbol. Retry the window with
+            # exponential backoff so the limiter window resets.
+            resp = None
+            last_err: Exception | None = None
+            for attempt in range(5):
+                if not self._hist.acquire(timeout=20):
+                    raise BrokerError("historical rate limit timeout", retryable=True)
+                try:
+                    resp = self._transport.getCandleData(params)
+                    break
+                except Exception as e:  # pragma: no cover - network
+                    last_err = e
+                    if attempt < 4:
+                        time.sleep(2 ** attempt)  # 1,2,4,8s — let the limit reset
+            if resp is None:
+                raise BrokerError(f"getCandleData {symbol} failed after retries: "
+                                  f"{last_err}", retryable=True)
             for row in (resp or {}).get("data") or []:
                 ts = datetime.fromisoformat(str(row[0])).replace(tzinfo=None)
                 if ts in seen:

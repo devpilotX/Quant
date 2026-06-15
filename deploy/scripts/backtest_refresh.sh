@@ -14,9 +14,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."                      # -> deploy/
-INTERVAL="${1:-FIVE_MINUTE}"; shift || true
-START="${2:-2021-01-01}"; shift || true
-EXTRA=("$@")
+INTERVAL="${1:-FIVE_MINUTE}"
+START="${2:-2017-01-01}"                     # only used for symbols with no cache
+[ $# -ge 1 ] && shift                        # drop INTERVAL
+[ $# -ge 1 ] && shift                        # drop START
+EXTRA=("$@")                                 # remaining = extra runstudy args
 DATA_VOL="quant_histdata"
 CFG="/app/engine/config/base.yaml"
 
