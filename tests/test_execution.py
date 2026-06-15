@@ -47,6 +47,7 @@ class FakeTransport:
         self.placed = []
         self._seq = 0
         self._book = {}
+        self.candle_calls = []
 
     def generateSession(self, code, mpin, totp):
         return {"status": True, "data": {"refreshToken": "rt"}}
@@ -79,6 +80,13 @@ class FakeTransport:
     def cancelOrder(self, oid, variety):
         self._book.pop(oid, None)
         return {"status": True}
+
+    def getCandleData(self, params):
+        # one synthetic bar stamped at the window start (IST +05:30), so a
+        # multi-chunk fetch yields one distinct bar per request window
+        self.candle_calls.append(dict(params))
+        frm = params["fromdate"].replace(" ", "T") + ":00+05:30"
+        return {"data": [[frm, 100.0, 101.0, 99.5, 100.5, 1234]]}
 
 
 MASTER = [
@@ -125,6 +133,25 @@ def test_unknown_instrument_raises(broker):
     with pytest.raises(BrokerError):
         broker.place(BrokerOrder("QS-2", "NOPE", "BUY", 1,
                                  ExecutionStyle.MARKET_SINGLE, Urgency.NORMAL))
+
+
+def test_historical_candles_chunks_and_normalises_to_naive_ist(broker):
+    # ~243 days at FIVE_MINUTE (100-day max window) => 3 requests
+    rows = broker.historical_candles(
+        "SBIN-EQ", "FIVE_MINUTE", datetime(2021, 1, 1, 9, 15),
+        datetime(2021, 9, 1, 15, 30))
+    assert len(broker._transport.candle_calls) == 3
+    assert len(rows) == 3
+    ts, o, h, l, c, v = rows[0]
+    assert ts.tzinfo is None            # +05:30 stripped to naive IST
+    assert (o, h, l, c, v) == (100.0, 101.0, 99.5, 100.5, 1234.0)
+    assert rows == sorted(rows, key=lambda r: r[0])  # ascending
+
+
+def test_historical_candles_rejects_unknown_interval(broker):
+    with pytest.raises(BrokerError):
+        broker.historical_candles("SBIN-EQ", "TWO_SECOND",
+                                  datetime(2021, 1, 1), datetime(2021, 1, 2))
 
 
 def test_reconnect_feed_session_relogins_without_master(broker):

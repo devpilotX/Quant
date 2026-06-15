@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from quantsys.core.types import (
     ExecutionStyle,
@@ -53,6 +53,14 @@ _STATUS_MAP = {
 
 _EXCHANGE = {InstrumentKind.EQUITY: "NSE", InstrumentKind.FUTURE: "NFO",
              InstrumentKind.OPTION: "NFO", InstrumentKind.INDEX: "NSE"}
+
+# Angel One getCandleData max days per request, by interval (their published
+# limits). We chunk a long backfill into windows no larger than these.
+_HIST_MAX_DAYS = {
+    "ONE_MINUTE": 30, "THREE_MINUTE": 60, "FIVE_MINUTE": 100,
+    "TEN_MINUTE": 100, "FIFTEEN_MINUTE": 200, "THIRTY_MINUTE": 200,
+    "ONE_HOUR": 400, "ONE_DAY": 2000,
+}
 
 
 class AngelOneBroker:
@@ -187,6 +195,57 @@ class AngelOneBroker:
 
     def instruments(self) -> dict[str, Instrument]:
         return dict(self._instruments)
+
+    # ----------------------------------------------------- historical data
+    def historical_candles(self, symbol: str, interval: str,
+                           start: datetime, end: datetime) -> list[tuple]:
+        """Fetch OHLCV candles in [start, end] via getCandleData, chunked to
+        Angel's per-request day limits and rate-limited. Returns
+        (naive-IST ts, open, high, low, close, volume) tuples, ascending and
+        de-duplicated. Read-only — never places an order.
+
+        ``start``/``end`` are naive IST wall-clock (the engine's clock); Angel
+        returns +05:30 stamps which we strip back to naive IST so backtest and
+        live traverse identical timestamps.
+        """
+        inst = self._instruments.get(symbol)
+        if inst is None or not inst.token:
+            raise BrokerError(f"no instrument token for {symbol}")
+        interval = interval.upper()
+        max_days = _HIST_MAX_DAYS.get(interval)
+        if max_days is None:
+            raise BrokerError(f"unknown interval {interval!r}; one of "
+                              f"{sorted(_HIST_MAX_DAYS)}")
+        out: list[tuple] = []
+        seen: set[datetime] = set()
+        win_start = start
+        while win_start <= end:
+            win_end = min(end, win_start + timedelta(days=max_days - 1,
+                                                     hours=23, minutes=59))
+            params = {
+                "exchange": inst.exchange,
+                "symboltoken": inst.token,
+                "interval": interval,
+                "fromdate": win_start.strftime("%Y-%m-%d %H:%M"),
+                "todate": win_end.strftime("%Y-%m-%d %H:%M"),
+            }
+            if not self._hist.acquire(timeout=20):
+                raise BrokerError("historical rate limit timeout", retryable=True)
+            try:
+                resp = self._transport.getCandleData(params)
+            except Exception as e:  # pragma: no cover - network
+                raise BrokerError(f"getCandleData {symbol} failed: {e}",
+                                  retryable=True)
+            for row in (resp or {}).get("data") or []:
+                ts = datetime.fromisoformat(str(row[0])).replace(tzinfo=None)
+                if ts in seen:
+                    continue
+                seen.add(ts)
+                out.append((ts, float(row[1]), float(row[2]), float(row[3]),
+                            float(row[4]), float(row[5])))
+            win_start = win_end + timedelta(minutes=1)
+        out.sort(key=lambda r: r[0])
+        return out
 
     # ------------------------------------------------------------- funds
     def funds(self) -> float:

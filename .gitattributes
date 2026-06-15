@@ -1,0 +1,3 @@
+# Shell scripts must keep LF endings so they run on the Linux VPS even when
+# authored/edited on Windows (CRLF in a #!/usr/bin/env bash script breaks it).
+*.sh text eol=lf
