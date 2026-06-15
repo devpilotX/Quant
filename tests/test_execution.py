@@ -127,6 +127,16 @@ def test_unknown_instrument_raises(broker):
                                  ExecutionStyle.MARKET_SINGLE, Urgency.NORMAL))
 
 
+def test_reconnect_feed_session_relogins_without_master(broker):
+    # the websocket feed calls this after a drop: re-login for fresh tokens,
+    # but do NOT re-pull the (already loaded) instrument master.
+    creds = broker.reconnect_feed_session()
+    assert creds["feed_token"] == "ft"
+    assert creds["client_code"] == "c" and creds["api_key"] == "k"
+    assert broker.is_connected()
+    assert "SBIN-EQ" in broker.instruments()  # universe still present
+
+
 # ------------------------------------------------------------- OMS tests
 def test_oms_single_order_places_once(broker):
     oms = OMS(broker)

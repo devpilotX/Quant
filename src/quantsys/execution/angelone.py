@@ -89,7 +89,11 @@ class AngelOneBroker:
         self._transport = SmartConnect(api_key=self.api_key)
         return self._transport
 
-    def connect(self) -> None:
+    def _login(self) -> None:
+        """Authenticate (TOTP) and capture fresh access/refresh/feed tokens.
+        Does NOT pull the instrument master — that is connect()'s job; a feed
+        reconnect re-logins without re-pulling the universe (see
+        reconnect_feed_session)."""
         import pyotp
 
         t = self._build_transport()
@@ -109,8 +113,24 @@ class AngelOneBroker:
         except Exception:
             self._feed_token = ""
         self._connected = True
+
+    def connect(self) -> None:
+        self._login()
         self.refresh_instruments()
         log.info("Angel One connected; %d instruments", len(self._instruments))
+
+    def reconnect_feed_session(self) -> dict:
+        """Re-login for fresh websocket tokens after a feed drop, WITHOUT
+        re-pulling the instrument master (the universe is already loaded).
+        Friday's token is dead by Monday, so the feed supervisor calls this
+        before each reconnect. Returns the creds the websocket needs."""
+        self._login()
+        return {
+            "auth_token": getattr(self._transport, "access_token", ""),
+            "feed_token": self._feed_token,
+            "api_key": self.api_key,
+            "client_code": self.client_code,
+        }
 
     def is_connected(self) -> bool:
         return self._connected

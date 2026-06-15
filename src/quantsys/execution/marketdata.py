@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
-from quantsys.core.types import Bar, SESSION_OPEN
+from quantsys.core.types import Bar, SESSION_OPEN, is_session_open, now_ist
 
 log = logging.getLogger("quantsys.marketdata")
 
@@ -88,15 +89,46 @@ class BarAggregator:
             self._building.clear()
 
 
+def _default_ws_factory(auth_token, api_key, client_code, feed_token):  # pragma: no cover - network
+    from SmartApi.smartWebSocketV2 import SmartWebSocketV2  # type: ignore
+
+    return SmartWebSocketV2(auth_token, api_key, client_code, feed_token)
+
+
 class AngelWebSocketFeed:  # pragma: no cover - network path
-    """Thin wrapper over SmartWebSocketV2 that pushes ticks into a
-    BarAggregator. Lazily imported. Auto-reconnect is delegated to the SDK's
-    callbacks; on any error we log loudly and the runner's heartbeat goes
-    stale -> dashboard shows feed loss -> fail safe to no new risk."""
+    """Self-healing wrapper over SmartWebSocketV2 that pushes ticks into a
+    BarAggregator.
+
+    The 2026-06-13 incident: the SDK hit 'max retry attempts reached' over a
+    weekend, its connect() thread exited, nothing restarted it, and yet the
+    LiveRunner kept heart-beating — so the feed was silently dead at Monday's
+    open and the dashboard showed no data. The old code delegated all reconnect
+    to the SDK and assumed feed loss would surface as a stale heartbeat; neither
+    held. This wrapper owns reconnection so a dropped or token-expired feed
+    recovers on its own:
+
+      * a supervisor thread (re)builds the socket and blocks in connect(); when
+        connect() returns (SDK gave up / socket closed) it re-authenticates for
+        fresh tokens — Friday's token is dead by Monday — and reconnects, with
+        capped exponential backoff;
+      * a watchdog thread force-closes a socket that stops delivering ticks
+        during market hours (a 'connected but silent' feed), which makes
+        connect() return so the supervisor rebuilds it;
+      * on_close / on_error tolerate the SDK's varying callback arities (the
+        SDK's own _on_close signature mismatch was part of the incident).
+
+    The socket constructor (ws_factory) and re-auth (reauth) are injected so the
+    whole control flow is unit-tested without a network or the SDK.
+    """
 
     def __init__(self, *, auth_token: str, api_key: str, client_code: str,
                  feed_token: str, tokens_by_exchange: dict[str, list[str]],
-                 aggregator: BarAggregator, token_to_symbol: dict[str, str]):
+                 aggregator: BarAggregator, token_to_symbol: dict[str, str],
+                 reauth: Callable[[], dict] | None = None,
+                 ws_factory: Callable[..., object] | None = None,
+                 is_open: Callable[[], bool] | None = None,
+                 stale_seconds: float = 90.0, initial_backoff: float = 1.0,
+                 max_backoff: float = 60.0, watchdog_interval: float = 15.0):
         self.auth_token = auth_token
         self.api_key = api_key
         self.client_code = client_code
@@ -104,15 +136,39 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
         self.tokens_by_exchange = tokens_by_exchange
         self.aggregator = aggregator
         self.token_to_symbol = token_to_symbol
+        self._reauth = reauth
+        self._ws_factory = ws_factory or _default_ws_factory
+        self._is_open = is_open or (lambda: is_session_open(now_ist()))
+        self._stale_seconds = stale_seconds
+        self._initial_backoff = initial_backoff
+        self._max_backoff = max_backoff
+        self._watchdog_interval = watchdog_interval
         self._sws = None
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._last_tick = 0.0       # monotonic; 0.0 => no tick yet
+        self._connected_at = 0.0    # monotonic of last socket (re)build; 0 => down
 
+    # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
-        from SmartApi.smartWebSocketV2 import SmartWebSocketV2  # type: ignore
+        self._stop.clear()
+        threading.Thread(target=self._supervise, daemon=True,
+                         name="angel-ws-sup").start()
+        threading.Thread(target=self._watchdog, daemon=True,
+                         name="angel-ws-wd").start()
 
-        sws = SmartWebSocketV2(self.auth_token, self.api_key,
-                               self.client_code, self.feed_token)
-        self._sws = sws
+    def stop(self) -> None:
+        self._stop.set()
+        self._close_socket()
 
+    def seconds_since_tick(self) -> float | None:
+        """Monotonic seconds since the last tick, or None if none received yet."""
+        with self._lock:
+            last = self._last_tick
+        return None if last == 0.0 else max(0.0, time.monotonic() - last)
+
+    # ------------------------------------------------------------- callbacks
+    def _bind_callbacks(self, sws) -> None:
         def on_data(wsapp, message):
             tok = str(message.get("token", ""))
             sym = self.token_to_symbol.get(tok)
@@ -121,7 +177,11 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
                 return
             price = float(ltp) / 100.0  # Angel sends paise
             vol = message.get("volume_trade_for_the_day")
-            self.aggregator.on_tick(sym, price, datetime.now(),
+            with self._lock:
+                self._last_tick = time.monotonic()
+            # now_ist(), NOT datetime.now(): the VPS container runs in UTC and
+            # the aggregator buckets against the 09:15 IST session open.
+            self.aggregator.on_tick(sym, price, now_ist(),
                                     float(vol) if vol is not None else None)
 
         def on_open(wsapp):
@@ -131,21 +191,80 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
                           for ex, toks in self.tokens_by_exchange.items()]
             sws.subscribe("qs-live", mode, token_list)
 
-        def on_error(wsapp, error):
-            log.error("websocket error: %s", error)
+        def on_error(wsapp, *args):
+            log.error("websocket error: %s", args[0] if args else "?")
 
-        def on_close(wsapp):
-            log.warning("websocket closed")
+        def on_close(wsapp, *args):
+            log.warning("websocket closed%s", f": {args}" if args else "")
 
         sws.on_open = on_open
         sws.on_data = on_data
         sws.on_error = on_error
         sws.on_close = on_close
-        threading.Thread(target=sws.connect, daemon=True, name="angel-ws").start()
 
-    def stop(self) -> None:
-        if self._sws is not None:
+    # ------------------------------------------------------------- internals
+    def _close_socket(self) -> None:
+        with self._lock:
+            sws = self._sws
+        if sws is not None:
             try:
-                self._sws.close_connection()
+                sws.close_connection()
             except Exception:
                 pass
+
+    def _do_reauth(self) -> None:
+        if self._reauth is None:
+            return
+        try:
+            creds = self._reauth() or {}
+        except Exception as e:
+            log.error("feed: re-auth failed: %s", e)
+            return
+        self.auth_token = creds.get("auth_token", self.auth_token)
+        self.feed_token = creds.get("feed_token", self.feed_token)
+        self.api_key = creds.get("api_key", self.api_key)
+        self.client_code = creds.get("client_code", self.client_code)
+        log.info("feed: re-authenticated for fresh websocket tokens")
+
+    def _supervise(self) -> None:
+        backoff = self._initial_backoff
+        while not self._stop.is_set():
+            t0 = time.monotonic()
+            try:
+                sws = self._ws_factory(self.auth_token, self.api_key,
+                                       self.client_code, self.feed_token)
+                self._bind_callbacks(sws)
+                with self._lock:
+                    self._sws = sws
+                    self._connected_at = time.monotonic()
+                sws.connect()  # blocks until the socket closes / SDK gives up
+            except Exception as e:
+                log.error("feed: connect failed: %s", e)
+            with self._lock:
+                self._sws = None
+                self._connected_at = 0.0  # mark down so the watchdog stays quiet
+            if self._stop.is_set():
+                break
+            if time.monotonic() - t0 >= 30:
+                backoff = self._initial_backoff  # a healthy session => reset
+            log.warning("feed: socket down — re-auth + reconnect in %.0fs", backoff)
+            if self._stop.wait(backoff):
+                break
+            self._do_reauth()
+            backoff = min(self._max_backoff,
+                          max(self._initial_backoff, backoff * 2))
+
+    def _watchdog(self) -> None:
+        while not self._stop.wait(self._watchdog_interval):
+            if not self._is_open():
+                continue
+            with self._lock:
+                connected_for = (time.monotonic() - self._connected_at
+                                 if self._connected_at else 0.0)
+            if connected_for < self._stale_seconds:
+                continue  # no socket, or let a fresh one warm up before judging
+            since = self.seconds_since_tick()
+            if since is None or since > self._stale_seconds:
+                log.error("feed: no ticks for >%.0fs during market hours — "
+                          "forcing reconnect", self._stale_seconds)
+                self._close_socket()  # unblock connect() -> supervisor rebuilds

@@ -83,6 +83,7 @@ class LiveRunner:
         self.deployable_cap_abs: float | None = None
         self._pending_bars: dict[str, Bar] = {}
         self._lock = threading.Lock()
+        self.feed = None  # set by main() to the AngelWebSocketFeed (feed health)
         self.aggregator = BarAggregator(self.cfg.engine.decision_bar_minutes,
                                         self._on_completed_bar)
         self._publish_config_snapshot()
@@ -257,9 +258,26 @@ class LiveRunner:
         self.commands.poll()
 
     # --------------------------------------------------------------- loop
+    def _seed_equity_snapshot(self) -> None:
+        """Write one equity point at startup so the dashboard shows starting
+        capital straight away instead of 'no data' until the first bar
+        completes (up to a full bar after a restart)."""
+        try:
+            prices = self.current_prices()
+            gross, net = self.broker.exposures(prices)
+            self.recorder.record_equity(
+                now_ist(), equity=self.broker.equity(prices),
+                cash=self.broker.cash, mtm=self.broker.mtm(prices),
+                gross=gross, net=net, realized=self.broker.realized_total,
+                unrealized=self.broker.unrealized(prices),
+            )
+        except Exception as e:  # pragma: no cover - best-effort seed
+            log.warning("initial equity snapshot failed: %s", e)
+
     def run_forever(self, poll_seconds: float = 1.0) -> None:
         log.info("LiveRunner started mode=%s instruments=%d", self.mode,
                  len(self.instruments))
+        self._seed_equity_snapshot()
         last_heartbeat = 0.0
         while True:
             now = now_ist()
@@ -271,10 +289,13 @@ class LiveRunner:
                 if isinstance(self.broker, LiveExecutionBroker):
                     self.broker.pump(self.current_prices())
                 if time.monotonic() - last_heartbeat > 10:
+                    feed_age = self.feed.seconds_since_tick() if self.feed else None
                     self.recorder.heartbeat(
                         status="idle" if not is_session_open(now) else "running",
                         market_open=is_session_open(now),
-                        detail={"venue": self.mode, "data_source": "angelone"})
+                        detail={"venue": self.mode, "data_source": "angelone",
+                                "feed_age_s": (round(feed_age, 1)
+                                               if feed_age is not None else None)})
                     last_heartbeat = time.monotonic()
                 self.commands.poll()
             time.sleep(poll_seconds)
@@ -309,7 +330,9 @@ def main() -> None:
         api_key=adapter.api_key, client_code=adapter.client_code,
         feed_token=adapter._feed_token, tokens_by_exchange=tokens_by_exchange,
         aggregator=runner.aggregator, token_to_symbol=token_to_symbol,
+        reauth=adapter.reconnect_feed_session,
     )
+    runner.feed = feed
     feed.start()
     try:
         runner.run_forever()

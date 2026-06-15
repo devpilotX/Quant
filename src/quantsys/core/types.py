@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Mapping
 
@@ -28,6 +28,18 @@ TRADING_DAYS_PER_YEAR = 252
 SESSION_MINUTES = 375  # 09:15-15:30 IST
 SESSION_OPEN = (9, 15)
 SESSION_CLOSE = (15, 30)
+
+# IST is the engine's single clock (see module docstring): every timestamp is
+# naive and means exchange wall-clock. ``now_ist`` is what the live data layer
+# stamps ticks/bars with so they bucket on the NSE session regardless of the
+# host/container timezone — the VPS runs in UTC, and using a bare datetime.now()
+# there silently shifts every bar by 5h30 and breaks session bucketing.
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def now_ist() -> datetime:
+    """Naive IST wall-clock — the one timestamp convention across the engine."""
+    return datetime.now(IST).replace(tzinfo=None)
 
 
 def bars_per_day(bar_minutes: float) -> float:
