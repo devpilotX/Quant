@@ -26,7 +26,7 @@ import argparse
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from quantsys.config import load_config
 from quantsys.core.market_state import MarketState
@@ -49,6 +49,11 @@ from qsdash.models import RuntimeConfig
 log = logging.getLogger("qsdash.live")
 
 FEED_STALE_S = 90  # no ticks for this long during market hours => alert
+
+# decision-bar minutes -> Angel candle interval, for startup history warmup
+_ANGEL_INTERVAL = {1: "ONE_MINUTE", 3: "THREE_MINUTE", 5: "FIVE_MINUTE",
+                   10: "TEN_MINUTE", 15: "FIFTEEN_MINUTE", 30: "THIRTY_MINUTE",
+                   60: "ONE_HOUR"}
 
 
 class LiveRunner:
@@ -308,6 +313,61 @@ class LiveRunner:
                          title="Market-data feed recovered", body=self.mode)
             self._feed_stale = False
 
+    def _warmup_from_history(self, lookback_bars: int = 2000) -> None:
+        """Replay recent Angel history through the engine (post_bar+decide, NO
+        execution) so strategies, online edge-stats and the regime HMM are warm
+        at the FIRST live bar. Without it the engine starts blind: with only a
+        handful of live bars no strategy has its lookback, so it emits 0 signals
+        for days (the 2026-06-15 'no trades' symptom). Mirrors the backtest
+        warmup (backtest/loop.py). Best-effort — never blocks the engine start.
+        """
+        bar_min = self.cfg.engine.decision_bar_minutes
+        interval = _ANGEL_INTERVAL.get(bar_min)
+        if interval is None:
+            log.warning("warmup: no Angel interval for %d-min bars; skipping", bar_min)
+            return
+        days = int(lookback_bars / 75 * 1.7) + 7  # ~75 session bars/day + buffer
+        end = now_ist()
+        start = end - timedelta(days=days)
+        per_sym: dict[str, list] = {}
+        for sym in self.instruments:
+            try:
+                rows = self.broker_adapter.historical_candles(sym, interval, start, end)
+                if rows:
+                    per_sym[sym] = rows[-lookback_bars:]
+            except Exception as e:
+                log.warning("warmup fetch %s failed: %s", sym, e)
+        if not per_sym:
+            log.warning("warmup: no history fetched — engine starts cold")
+            return
+        # merge per-symbol candles into time-ordered batches (point-in-time)
+        all_ts = sorted({r[0] for rows in per_sym.values() for r in rows})
+        idx = {s: 0 for s in per_sym}
+        n = 0
+        for ts in all_ts:
+            for s, rows in per_sym.items():
+                i = idx[s]
+                if i < len(rows) and rows[i][0] == ts:
+                    _, o, h, l, c, v = rows[i]
+                    self.histories[s].append(Bar(ts=ts, open=o, high=h, low=l,
+                                                 close=c, volume=v))
+                    self._last_prices[s] = c
+                    idx[s] = i + 1
+            if not is_session_open(ts):
+                continue
+            state = MarketState(
+                ts=ts,
+                equity=self.effective_equity(self.broker.equity(self._last_prices)),
+                bars=self.histories, instruments=self.instruments,
+                positions={s: Position(s, p.qty, getattr(p, "avg_price", 0.0))
+                           for s, p in self.broker.positions.items()},
+            )
+            self.engine.post_bar(state)
+            self.engine.decide(state)  # warms stats/regime; orders NOT executed
+            n += 1
+        log.info("warmup: replayed %d bars across %d instruments (engine ready)",
+                 n, len(per_sym))
+
     def _seed_equity_snapshot(self) -> None:
         """Write one equity point at startup so the dashboard shows starting
         capital straight away instead of 'no data' until the first bar
@@ -328,6 +388,10 @@ class LiveRunner:
         log.info("LiveRunner started mode=%s instruments=%d", self.mode,
                  len(self.instruments))
         self._started_monotonic = time.monotonic()
+        try:
+            self._warmup_from_history()
+        except Exception as e:  # best-effort — a cold start is still functional
+            log.warning("warmup failed (engine starts cold): %s", e)
         self._seed_equity_snapshot()
         notify_alert(self.publisher, severity="info", kind="engine_start",
                      title=f"Engine started ({self.mode})",

@@ -108,6 +108,32 @@ def test_live_runner_reports_adapter_present(live_runner):
     assert live_runner.adapter_connected is True
 
 
+def test_warmup_seeds_histories_from_angel(live_runner, monkeypatch):
+    """Startup warmup fetches recent candles and replays them through the
+    engine (no execution) so strategies have their lookback at the first live
+    bar — the fix for the 'engine took no trades' day-1 symptom."""
+    from quantsys.data.history import BarHistory
+
+    live_runner.histories = {s: BarHistory() for s in live_runner.instruments}
+    live_runner._last_prices = {}
+    live_runner.deployable_cap_frac = None
+    live_runner.deployable_cap_abs = None
+    base = datetime(2026, 6, 10, 9, 15)
+
+    def fake_hist(sym, interval, start, end):
+        return [(base + timedelta(minutes=5 * i), 100.0 + i * 0.05,
+                 100.6 + i * 0.05, 99.4 + i * 0.05, 100.2 + i * 0.05, 1000.0)
+                for i in range(300)]
+
+    monkeypatch.setattr(live_runner.broker_adapter, "historical_candles", fake_hist)
+    live_runner._warmup_from_history(lookback_bars=150)
+
+    # every instrument's history seeded (capped to lookback) and the engine
+    # ran over the bars clean (no execution)
+    assert len(live_runner.histories) >= 2
+    assert all(len(h) == 150 for h in live_runner.histories.values())
+
+
 def test_set_mode_live_refused_without_passing_backtest(live_runner, db):
     """Even fully armed with a connected adapter, live is refused while only
     synthetic (or no) backtests exist."""

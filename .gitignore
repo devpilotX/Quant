@@ -9,6 +9,9 @@ venv/
 state/
 data_cache/
 logs/
+# ...but NOT the dashboard "Logs & Alerts" route, which lives under a logs/ dir
+!/dashboard/frontend/src/app/(dash)/logs/
+!/dashboard/frontend/src/app/(dash)/logs/**
 *.parquet
 *.duckdb
 .mcp.json.txt
