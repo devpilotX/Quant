@@ -179,7 +179,12 @@ class AngelOneBroker:
             out[sym] = inst
             self._token_to_symbol[inst.token] = sym
             name = row.get("name")
-            if kind == InstrumentKind.INDEX and name:
+            # NSE equity indices only: the SAME index name appears on other
+            # segments (e.g. NIFTY shows up on CDS as token '2') whose tokens
+            # return no NSE candle data. Match the NSE row (AMXIDX token 99926000
+            # for NIFTY) and keep the first, so resolution is deterministic.
+            if (kind == InstrumentKind.INDEX and name
+                    and row.get("exch_seg") == "NSE" and name not in index_by_name):
                 index_by_name[name] = inst
         # Indices are ALSO resolvable by their NAME: config uses "NIFTY", but the
         # master's index symbol is "Nifty 50". Index rows win the name key over a

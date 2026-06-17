@@ -123,6 +123,10 @@ def test_index_resolves_to_amxidx_candle_token():
          "instrumenttype": "", "lotsize": "1", "tick_size": "5"},
         {"symbol": "Nifty 50", "name": "NIFTY", "token": "99926000", "exch_seg": "NSE",
          "instrumenttype": "AMXIDX", "lotsize": "1", "tick_size": "5"},
+        # decoy: same index name on the currency segment with a token that
+        # returns no NSE candles — must NOT win.
+        {"symbol": "NIFTY", "name": "NIFTY", "token": "2", "exch_seg": "CDS",
+         "instrumenttype": "AMXIDX", "lotsize": "1", "tick_size": "5"},
         {"symbol": "HDFCBANK", "name": "HDFCBANK", "token": "1333", "exch_seg": "NSE",
          "instrumenttype": "", "lotsize": "1", "tick_size": "5"},
     ]
