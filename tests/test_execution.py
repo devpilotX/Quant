@@ -114,6 +114,28 @@ def test_connect_loads_instruments(broker):
     assert insts["SBIN-EQ"].tick_size == 0.05
 
 
+def test_index_resolves_to_amxidx_candle_token():
+    """Regression: config 'NIFTY' must resolve to the AMXIDX index token
+    (99926000, which returns candles), NOT the bare spot row (26000, returns
+    none) — the bug that starved the regime HMM and left it stuck in `warmup`."""
+    master = [
+        {"symbol": "NIFTY", "name": "NIFTY", "token": "26000", "exch_seg": "NSE",
+         "instrumenttype": "", "lotsize": "1", "tick_size": "5"},
+        {"symbol": "Nifty 50", "name": "NIFTY", "token": "99926000", "exch_seg": "NSE",
+         "instrumenttype": "AMXIDX", "lotsize": "1", "tick_size": "5"},
+        {"symbol": "HDFCBANK", "name": "HDFCBANK", "token": "1333", "exch_seg": "NSE",
+         "instrumenttype": "", "lotsize": "1", "tick_size": "5"},
+    ]
+    b = AngelOneBroker(api_key="k", client_code="c", mpin="1234",
+                       totp_secret="JBSWY3DPEHPK3PXP", transport=FakeTransport(),
+                       instrument_master=master)
+    b.connect()
+    insts = b.instruments()
+    assert insts["NIFTY"].token == "99926000"               # AMXIDX, not 26000
+    assert insts["NIFTY"].kind == InstrumentKind.INDEX
+    assert insts["HDFCBANK"].kind == InstrumentKind.EQUITY   # equities unchanged
+
+
 def test_funds_and_positions(broker):
     assert broker.funds() == 1_500_000.0
     pos = broker.positions()

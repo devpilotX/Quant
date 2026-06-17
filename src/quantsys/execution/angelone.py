@@ -161,6 +161,7 @@ class AngelOneBroker:
         fallbacks (see live_runner)."""
         master = self._load_master()
         out: dict[str, Instrument] = {}
+        index_by_name: dict[str, Instrument] = {}
         for row in master:
             sym = row.get("symbol") or row.get("name")
             if not sym:
@@ -177,6 +178,17 @@ class AngelOneBroker:
             )
             out[sym] = inst
             self._token_to_symbol[inst.token] = sym
+            name = row.get("name")
+            if kind == InstrumentKind.INDEX and name:
+                index_by_name[name] = inst
+        # Indices are ALSO resolvable by their NAME: config uses "NIFTY", but the
+        # master's index symbol is "Nifty 50". Index rows win the name key over a
+        # same-named non-index row, because only the AMXIDX token returns candle
+        # data — the bare spot row (token 26000) returns NONE, which is what left
+        # the regime HMM starved and stuck in `warmup`.
+        for name, inst in index_by_name.items():
+            out[name] = inst
+            self._token_to_symbol[inst.token] = name
         self._instruments = out
         return out
 
@@ -387,6 +399,11 @@ class AngelOneBroker:
 def _infer_kind(row: dict) -> InstrumentKind:
     seg = (row.get("exch_seg") or "").upper()
     sym = (row.get("symbol") or "").upper()
+    # Cash indices (NIFTY 50, NIFTY BANK, ...) carry instrumenttype AMXIDX. They
+    # must be INDEX, not EQUITY — they are non-tradeable and their candle data
+    # lives under the AMXIDX token, not the bare spot row (see refresh_instruments).
+    if (row.get("instrumenttype") or "").upper() in ("AMXIDX", "INDEX"):
+        return InstrumentKind.INDEX
     if seg == "NFO":
         if sym.endswith("FUT"):
             return InstrumentKind.FUTURE
