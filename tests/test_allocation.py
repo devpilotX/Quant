@@ -57,6 +57,23 @@ def test_kelly_incubation_floor_and_negative_withdrawal():
     assert f2["s"] == 0.0  # clearly negative evidence withdraws the floor
 
 
+def test_explore_floor_forces_allocation_despite_negative_edge():
+    # paper-only exploration: explore_floor forces a minimum allocation that is
+    # NOT withdrawn by clearly-negative evidence. Default 0.0 keeps live and the
+    # backtest gate fully honest (asserted in the negative-withdrawal test).
+    losing = OnlineEdgeStats(50.0, 10.0)
+    for _ in range(60):
+        losing.update(-0.01)  # clearly negative edge -> normally withdrawn to 0
+    cfg = KellyConfig(ramp_obs=10.0, prior_obs=10.0, edge_halflife_bars=50.0,
+                      explore_floor=0.05)
+    f = KellyAllocator(cfg).allocate({"s": losing}, NEUTRAL, ["s"], [])
+    assert f["s"] == pytest.approx(0.05)  # forced despite negative edge
+
+    cfg_off = KellyConfig(ramp_obs=10.0, prior_obs=10.0, edge_halflife_bars=50.0)
+    f_off = KellyAllocator(cfg_off).allocate({"s": losing}, NEUTRAL, ["s"], [])
+    assert f_off["s"] == 0.0  # default: still honestly withdrawn
+
+
 def test_kelly_gross_cap_scales_proportionally():
     cfg = KellyConfig(gross_f_cap=0.4, f_cap=0.35, ramp_obs=1.0, prior_obs=1.0,
                       edge_halflife_bars=5000.0)

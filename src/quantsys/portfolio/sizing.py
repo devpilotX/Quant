@@ -137,7 +137,7 @@ class SizingEngine:
                 audits.append(AuditEvent("sizing", "dust", gid, before=gross, after=0.0))
                 continue
 
-            if sig is not None and self._is_new_trade(rounded, positions):
+            if self.cfg.enforce_cost_gate and sig is not None and self._is_new_trade(rounded, positions):
                 parent = next(((c, q) for c, q in rounded if c.is_parent), rounded[0])
                 c_p, q_p = parent
                 risk_rupees = abs(q_p) * c_p.stop_distance * state.instruments[c_p.symbol].point_value

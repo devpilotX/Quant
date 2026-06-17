@@ -52,6 +52,13 @@ class KellyAllocator:
                 f_s = cfg.ramp_floor if f_raw > -cfg.ramp_floor else 0.0
                 audits.append(AuditEvent("kelly", "incubation_floor",
                                          f"{s}: n_eff={st.n_eff:.0f} f->{f_s:.3f}"))
+            if cfg.explore_floor > 0.0 and f_s < cfg.explore_floor:
+                # forced, edge-agnostic exploration — paper-only plumbing
+                # validation, NOT withdrawn by negative evidence. The default
+                # (0.0) leaves live and the backtest gate fully honest.
+                f_s = cfg.explore_floor
+                audits.append(AuditEvent("kelly", "explore_floor",
+                                         f"{s}: forced f->{f_s:.3f} (paper exploration)"))
             f_s *= regime.strategy_weights.get(s, 1.0)
             f[s] = min(f_s, cfg.f_cap)
 

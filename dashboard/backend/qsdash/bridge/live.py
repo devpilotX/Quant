@@ -63,6 +63,7 @@ class LiveRunner:
         self.cfg = load_config(cfg_path)
         self.cfg_path = cfg_path
         self.mode = mode
+        self._apply_paper_exploration()
         self.publisher = make_sync_publisher(SessionLocal)
 
         self.broker_adapter = broker or AngelOneBroker()
@@ -115,6 +116,23 @@ class LiveRunner:
             return False
 
     # ------------------------------------------------------------- config
+    def _apply_paper_exploration(self) -> None:
+        """Paper-ONLY: force a small edge-agnostic Kelly allocation and bypass
+        the cost gate so the engine exercises the full order -> fill ->
+        reconcile -> P&L path even when no strategy has positive edge after
+        costs. Mutates the in-memory config BEFORE the engine is built. Never
+        runs in live (mode != 'paper' -> the honest gate stays intact) and never
+        in the backtest (which builds the engine directly, not via LiveRunner).
+        Toggle with engine.paper_explore in config."""
+        if self.mode != "paper" or not self.cfg.engine.paper_explore:
+            return
+        self.cfg.kelly.explore_floor = max(self.cfg.kelly.explore_floor,
+                                           self.cfg.engine.paper_explore_floor)
+        self.cfg.sizing.enforce_cost_gate = False
+        log.warning("PAPER EXPLORATION ON: kelly.explore_floor=%.3f, cost gate "
+                    "bypassed — paper-validation trades only (live/backtest are "
+                    "unaffected and stay honest)", self.cfg.kelly.explore_floor)
+
     def _merge_instruments(self, master: dict) -> dict:
         from quantsys.core.types import Instrument
         out = {}

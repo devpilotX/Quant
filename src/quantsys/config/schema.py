@@ -25,6 +25,13 @@ class EngineConfig(BaseModel):
     trailing_stop_strategies: list[str] = ["trend"]
     stop_cooldown_bars: int = 12        # re-entry lockout after a hard stop
     liquidity_rank_window: int = 250    # bars of volume used to rank universe
+    # Paper-only exploration: when running --paper, the LiveRunner forces a
+    # small edge-agnostic allocation and bypasses the cost gate so the engine
+    # exercises the order->fill->reconcile->P&L plumbing even when no strategy
+    # has positive edge after costs. NEVER applied in live (the honest gate
+    # stays intact) or in the backtest. Off => paper behaves like live/backtest.
+    paper_explore: bool = True
+    paper_explore_floor: float = 0.05   # forced per-strategy Kelly f in paper
 
 
 class SizingConfig(BaseModel):
@@ -32,6 +39,7 @@ class SizingConfig(BaseModel):
     atr_min_stop_ticks: int = 5
     conviction_weighting: bool = True
     max_signals_per_strategy: int = 12
+    enforce_cost_gate: bool = True   # paper exploration sets this False (see EngineConfig)
 
 
 class KellyConfig(BaseModel):
@@ -43,6 +51,7 @@ class KellyConfig(BaseModel):
     var_floor: float = 1e-10
     ramp_floor: float = 0.08       # incubation allocation while n_eff < ramp_obs
     ramp_obs: float = 750.0
+    explore_floor: float = 0.0     # forced min allocation (paper exploration only); 0 = off
 
     @field_validator("kelly_fraction")
     @classmethod

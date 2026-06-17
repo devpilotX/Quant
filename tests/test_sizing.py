@@ -98,6 +98,20 @@ def test_cost_gate_blocks_thin_edges_at_small_tier():
     assert allowed and allowed[0].qty == 300
 
 
+def test_cost_gate_can_be_disabled_for_paper_exploration():
+    # paper exploration sets sizing.enforce_cost_gate=False so the order ->
+    # fill -> reconcile -> P&L plumbing is exercised even on trades the honest
+    # gate would veto. The default (True) is asserted by the test above.
+    state = _state_with({"X": 100.0}, equity=100_000.0)
+    sig = Signal("s", "X", 1.0, stop_distance=2.0, expected_edge_R=0.10)
+    sizer = SizingEngine(SizingConfig(enforce_cost_gate=False), CostModel(CostConfig()), 0.0)
+    book = sizer.build_raw([sig], {"s": 1.0}, 600.0, state, [])
+    audits = []
+    allowed = sizer.finalize(book, _tier(min_cost_multiple=5.0), state, {}, {}, audits)
+    assert allowed and allowed[0].qty == 300       # blocked with gate on, allowed off
+    assert not any(a.rule == "cost_gate" for a in audits)
+
+
 def test_cost_gate_skips_held_positions():
     state = _state_with({"X": 100.0}, equity=100_000.0)
     sig = Signal("s", "X", 1.0, stop_distance=2.0, expected_edge_R=0.10)

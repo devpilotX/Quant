@@ -9,7 +9,7 @@
 # warm-start fallbacks, not authority.
 
 engine:
-  decision_bar_minutes: 5
+  decision_bar_minutes: 15
   index_symbol: NIFTY
 
 sizing:
