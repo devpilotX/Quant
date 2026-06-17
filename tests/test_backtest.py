@@ -98,6 +98,40 @@ def test_walk_forward_runs_and_separates_is_oos(cfg, bars):
         assert f.test_end >= f.test_start
 
 
+def test_walk_forward_feeds_each_bar_once_no_history_duplication(cfg, bars):
+    """Regression: walk_forward streams each bar into the continuous engine
+    EXACTLY ONCE. The old code re-fed overlapping train windows into the
+    carried BarHistory, bloating it ~2.5x with duplicate bars — which corrupted
+    the regime/edge estimators and made per-bar recompute blow up super-linearly
+    (walk_forward effectively hung on realistic inputs). Guard the invariant by
+    capturing the continuous engine and asserting its carried history is not
+    duplicated."""
+    import quantsys.backtest.walkforward as wfmod
+
+    created: list = []
+    orig = wfmod.DecisionEngine
+
+    def _spy(*a, **k):
+        e = orig(*a, **k)
+        created.append(e)
+        return e
+
+    wfmod.DecisionEngine = _spy
+    try:
+        wf = walk_forward(cfg, bars, 50_000_000, n_folds=4, train_frac=0.5)
+    finally:
+        wfmod.DecisionEngine = orig
+
+    assert wf.oos_curve, "walk-forward produced no OOS curve"
+    continuous = created[0]  # built before the fold loop; shadows come after
+    hist = getattr(continuous, "_bt_histories", {})
+    assert hist, "continuous engine never accumulated bar history"
+    sym = next(iter(hist))
+    # no duplication: carried history must not exceed the input length
+    # (the bug made this ~2.5x len(bars)).
+    assert len(hist[sym]) <= len(bars)
+
+
 def test_deflated_sharpe_deflates_with_more_trials():
     # same observed SR looks worse the more variants you tried
     p1 = deflated_sharpe(1.5, n_obs=252, n_trials=1)

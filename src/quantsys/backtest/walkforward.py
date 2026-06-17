@@ -71,6 +71,7 @@ def walk_forward(
 
     is_returns_pool: list[tuple[datetime, float]] = []
     cursor = 0
+    fed_hi = 0  # bars already streamed into the continuous engine/broker
     for fold_i in range(n_folds):
         train_lo = cursor
         test_lo = min(train_lo + train_span, n - test_span)
@@ -78,7 +79,14 @@ def walk_forward(
         if test_lo >= test_hi:
             break
 
-        window = all_bars[train_lo:test_hi]
+        # Stream ONLY the bars not yet seen by the continuous engine. The engine
+        # and broker already carry the earlier bars forward (exactly as live), so
+        # re-feeding the overlapping train window would append those bars to the
+        # carried BarHistory a second time — bloating it ~2.5x with DUPLICATE
+        # bars. That both corrupts the estimators (regime HMM / EWMA cov see
+        # repeated data) and makes per-bar regime/cov recompute blow up
+        # super-linearly, which is what made walk_forward effectively hang.
+        window = all_bars[fed_hi:test_hi]
         score_from = all_bars[test_lo][0]
 
         eq_before = broker.equity(_last_prices(all_bars, test_lo))
@@ -109,6 +117,7 @@ def walk_forward(
         for ts, v in is_metrics.get("_daily", []):
             is_returns_pool.append((ts, v))
 
+        fed_hi = test_hi
         cursor += test_span
 
     if res.oos_curve:
