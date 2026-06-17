@@ -230,6 +230,24 @@ class VolOptionsConfig(BaseModel):
     expected_edge_R: float = 0.10
 
 
+class ExpiryConfig(BaseModel):
+    # Research candidate (Phase 4), DISABLED by default and unvalidated. Enabled
+    # only inside the OOS test harness until/unless it clears the gate. Single
+    # pre-registered hypothesis (NOT to be tuned): NSE monthly F&O expiry (last
+    # Thursday) concentrates options OI; market-maker hedging + settlement flows
+    # mean-revert short-horizon price deviations into expiry. Rule: during the
+    # expiry-week window, FADE deviations from a rolling mean; flat otherwise.
+    enabled: bool = False
+    priority: int = 4
+    timeframe_bars: int = 2           # 30-min bars on a 15-min decision clock
+    z_lookback: int = 20              # bars for the mean/std of the price-deviation z
+    z_entry: float = 1.5              # fade when |z| >= this
+    window_days: int = 7              # active in the last N calendar days of the month
+    atr_n: int = 14
+    atr_mult: float = 2.5
+    expected_edge_R: float = 0.15
+
+
 class InstrumentConfig(BaseModel):
     symbol: str
     token: str = ""
@@ -256,6 +274,7 @@ class AppConfig(BaseModel):
     trend: TrendConfig = TrendConfig()
     meanrev: MeanRevConfig = MeanRevConfig()
     voloptions: VolOptionsConfig = VolOptionsConfig()
+    expiry: ExpiryConfig = ExpiryConfig()
     universe: list[InstrumentConfig] = []
 
 

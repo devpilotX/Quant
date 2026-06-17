@@ -43,6 +43,7 @@ from quantsys.risk.rules import RiskContext, apply_exposure_rules
 from quantsys.strategies.base import REGISTRY, OnlineEdgeStats, Strategy
 
 # import for side effect: strategy registration
+from quantsys.strategies import expiry as _expiry  # noqa: F401
 from quantsys.strategies import meanrev as _meanrev  # noqa: F401
 from quantsys.strategies import trend as _trend  # noqa: F401
 from quantsys.strategies import voloptions as _voloptions  # noqa: F401

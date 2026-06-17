@@ -1,8 +1,11 @@
+from datetime import datetime
+
 import numpy as np
 import pytest
 
-from quantsys.config.schema import MeanRevConfig, TrendConfig
+from quantsys.config.schema import ExpiryConfig, MeanRevConfig, TrendConfig
 from quantsys.core.types import InstrumentKind
+from quantsys.strategies.expiry import ExpiryStrategy
 from quantsys.strategies.meanrev import MeanRevStrategy
 from quantsys.strategies.trend import TrendStrategy
 from tests.conftest import cointegrated_pair, gbm, make_hist, make_inst, make_state
@@ -129,3 +132,28 @@ def test_meanrev_state_roundtrip():
     clone = MeanRevStrategy(MR_CFG)
     clone.load_state(strat.state_dict())
     assert clone._pairs.keys() == strat._pairs.keys()
+
+
+EXP_CFG = ExpiryConfig(enabled=True, timeframe_bars=1, z_lookback=20,
+                       z_entry=1.5, window_days=7, atr_n=5)
+
+
+def _exp_state(closes, ts):
+    return make_state({"X": make_hist(closes)}, {"X": make_inst("X")}, ts=ts)
+
+
+def test_expiry_fades_deviation_inside_window():
+    # June 2026 ends on the 30th; the 25th is inside the last-7-days window.
+    flat = np.full(59, 100.0)
+    up = np.append(flat, 103.0)        # sharp up-deviation -> fade = SHORT
+    s = ExpiryStrategy(EXP_CFG).generate_signals(_exp_state(up, datetime(2026, 6, 25, 10, 0)))
+    assert len(s) == 1 and s[0].direction < 0 and s[0].stop_distance > 0
+    down = np.append(flat, 97.0)       # sharp down-deviation -> fade = LONG
+    s2 = ExpiryStrategy(EXP_CFG).generate_signals(_exp_state(down, datetime(2026, 6, 25, 10, 0)))
+    assert len(s2) == 1 and s2[0].direction > 0
+
+
+def test_expiry_flat_outside_window():
+    up = np.append(np.full(59, 100.0), 103.0)
+    # 10th of the month is far from month-end -> strategy is dormant
+    assert ExpiryStrategy(EXP_CFG).generate_signals(_exp_state(up, datetime(2026, 6, 10, 10, 0))) == []
