@@ -62,9 +62,29 @@ positive** and is param-robust (multiple nearby configs Sharpe 0.7–1.1 IS), ec
 - **Doesn't beat buy-and-hold on hold-out return** (4.3% vs 7.0%), though similar Sharpe at lower DD.
 - Only 1 of 24 variants (BANKNIFTY, not NIFTY) shone — multiple-testing risk is real.
 
-**Verdict: MARGINAL — the best lead found, worth deeper validation, NOT deployable.** Next checks
-before it could ever be trusted: real BANKNIFTY-futures cost model (not 3 bps), longer/more OOS,
-*why BANKNIFTY and not NIFTY* (sector-vol artifact?), and a decay study on 2025–26.
+**Verdict: MARGINAL — the best lead found, worth deeper validation, NOT deployable.**
+
+### Probe 2 — DEEP VALIDATION (real cost, robustness, decay)
+Re-ran with the **real BANKNIFTY-futures cost from `CostModel` = 4.5 bps/side** (flat ₹20 brokerage +
+Budget-2026 STT 0.05% sell + 1.5 bps slippage; 1-lot impact omitted), across a 12-config robustness
+grid (L∈{40,60,90,120} × thr∈{0.75,1.0,1.25}, contrarian).
+
+- **Survives real cost & is param-robust:** **all 12 configs are positive on the hold-out**
+  (Sharpe 0.33–0.89) — not one lucky spike. Best hold-out: L120/thr1.0 Sharpe **0.885** (defl 0.27),
+  L90/thr0.75 0.816, L90/thr1.0 0.759. Several **beat BANKNIFTY buy-and-hold risk-adjusted**
+  (hold-out Sharpe ~0.8 vs B&H 0.486) and can go short (downside protection).
+- **NIFTY: confirmed NO edge** (IS Sharpe <0.5, hold-out mixed/negative) → the signal is
+  **BANKNIFTY-specific** (banking-sector leverage/vol, or single-market overfit).
+- **Still fails the gate:** best hold-out **deflated Sharpe ≈ 0.27 ≪ 0.95**.
+- **DECAYING (the key red flag):** per-year (L60/thr1.0, real cost) 2020 **1.69**, 2021 **1.69**,
+  2022 1.03, 2023 0.85, 2024 0.83 → **2025 0.19, 2026 −0.84**; trailing-1y Sharpe is now **negative**.
+  ~1.5 years of fade after 5 strong years — plausibly crowding/regime; **unresolved and concerning.**
+
+**Net: a real, robust-across-params, cost-surviving, OOS-positive signal — the only one in the
+project — but MARGINAL (fails the strict gate) and apparently DECAYING. Not deployable, but the
+first candidate that legitimately earns forward paper-validation IF one accepts the decay risk.**
+Productionizing it is a *build* (new registry strategy + a live option-OI feed the engine doesn't
+have today) — owner decision, not done.
 
 ---
 
