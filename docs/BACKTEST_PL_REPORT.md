@@ -72,6 +72,12 @@ couple of paper-exploration validation trades only). **No real capital is deploy
   (break-even). Lower frequency reduces cost drag but does not create edge.
 
 ### Vol-selling options (the only crash-surviving lead)
+> **⚠️ SUPERSEDED (2026-06-19) — see `docs/VOL_SLEEVE_RESEARCH.md`.** Firm-up research downgraded
+> this from "MARGINAL" to **no robust edge**: the result is a mid-price illusion (break-even at ~1%
+> entry half-spread / ~2% full bid/ask; net-negative beyond), it **fails the go-live gate even at
+> zero cost** (deflated 0.37 ≪ 0.95), it was **net-negative through a second crash (Feb-2018)**, and
+> it is really a **long-gamma** (not premium-selling) book. The numbers below stand as the
+> zero-cost / mid-price baseline only.
 - Free daily NIFTY+BANKNIFTY chains, **2,083 days 2018→2026**; defined-risk vertical spreads,
   held-to-expiry, real `VolOptionsStrategy` signal + real option cost model, ₹1cr base.
 - **Gross +₹10,015,366 · fees ₹3,143,363 · Net +₹6,872,004 · Gross PF 1.156 · Net PF 1.104 ·
