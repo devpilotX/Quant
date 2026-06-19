@@ -39,6 +39,35 @@ bhavcopy).
 
 ---
 
+## Probe 2 — Option OI / PCR positioning (non-price flow signal) — **MARGINAL (first OOS-survivor)**
+
+Built daily Put/Call **open-interest ratio** (PCR) for NIFTY & BANKNIFTY from the stored chains
+(2017→2026) and tested it as a long/flat/short index-futures **timing** signal (contrarian &
+momentum, lookback {20,60,120}, z-threshold {0.5,1.0}; 24 variants, deflated at n_trials=24; ~3 bps/side
+futures cost). Signal at close *d*, return earned *d+1* (no look-ahead).
+
+| Signal | IS 2018–2023 | **Hold-out 2024–2026** | Buy&Hold (hold-out) |
+|---|---|---|---|
+| **NIFTY** PCR (best) | Sharpe 0.48, defl 0.21 | Sharpe 0.06 | 3.7% / 0.33 — **no edge** |
+| **BANKNIFTY** PCR-contrarian L60 | **Sharpe 1.145, CAGR 15.6%, defl 0.79, maxDD 10%** | **Sharpe 0.481, CAGR 4.3%, defl 0.11** | 7.0% / 0.486 |
+
+**BANKNIFTY PCR-contrarian is the first signal in the whole project that survives the hold-out
+positive** and is param-robust (multiple nearby configs Sharpe 0.7–1.1 IS), economically motivated
+(option positioning = real flow), with low drawdown. **But it is MARGINAL, not an edge:**
+- **Fails the gate** (hold-out deflated **0.11** ≪ 0.95; IS 0.79 < 0.95).
+- **Cost-fragile** — full-sample Sharpe 0.98 @3 bps → 0.45 @10 bps → **−0.31 @20 bps**. Real retail
+  BANKNIFTY-futures round-trip (slippage+impact) is plausibly 5–15 bps, i.e. marginal-to-dead.
+- **Regime-dependent / decaying** — strong 2020–2024 (Sharpe 1.0–1.8), **fading 2025 (0.32) and
+  2026 (−0.74)**.
+- **Doesn't beat buy-and-hold on hold-out return** (4.3% vs 7.0%), though similar Sharpe at lower DD.
+- Only 1 of 24 variants (BANKNIFTY, not NIFTY) shone — multiple-testing risk is real.
+
+**Verdict: MARGINAL — the best lead found, worth deeper validation, NOT deployable.** Next checks
+before it could ever be trusted: real BANKNIFTY-futures cost model (not 3 bps), longer/more OOS,
+*why BANKNIFTY and not NIFTY* (sector-vol artifact?), and a decay study on 2025–26.
+
+---
+
 ## Remaining honest avenues (highest-value first)
 
 1. **Breadth + factors** — fetch a broad liquid universe (NIFTY-200/500 daily, free bhavcopy) and
