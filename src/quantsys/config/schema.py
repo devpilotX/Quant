@@ -248,6 +248,29 @@ class ExpiryConfig(BaseModel):
     expected_edge_R: float = 0.15
 
 
+class FactorConfig(BaseModel):
+    # Pillar 2: broad-universe cross-sectional equity factors (price/volume only:
+    # momentum + low-vol). DISABLED by default and unvalidated against the gate.
+    # This is a DAILY, broad-universe strategy: it needs many names (>= min_universe)
+    # and a daily decision clock to be meaningful, so it is a safe no-op in the live
+    # intraday/narrow-universe engine. It stays off until the research harness
+    # (quantsys.research.run_pillar2) shows a gate-clearing OOS edge AND a daily
+    # broad-universe feed is wired. See docs/PILLAR2_FACTOR_RESEARCH.md.
+    enabled: bool = False
+    priority: int = 5
+    timeframe_bars: int = 75          # ~1 trading day on a 5-min clock (resample to daily)
+    lookback_bars: int = 252          # 12-month momentum (in resampled/daily bars)
+    skip_bars: int = 21               # skip most-recent month (12-1 momentum)
+    vol_lookback: int = 252           # low-vol factor window
+    rebalance_bars: int = 21          # monthly rebalance cadence (resampled bars)
+    top_k: int = 30                   # longs (and shorts if market_neutral)
+    min_universe: int = 40            # emit nothing below this breadth (live-narrow safe)
+    market_neutral: bool = True       # long top-K / short bottom-K, dollar-neutral
+    atr_n: int = 14                   # ATR window for the per-name risk stop
+    atr_mult: float = 2.5
+    expected_edge_R: float = 0.10
+
+
 class InstrumentConfig(BaseModel):
     symbol: str
     token: str = ""
@@ -275,6 +298,7 @@ class AppConfig(BaseModel):
     meanrev: MeanRevConfig = MeanRevConfig()
     voloptions: VolOptionsConfig = VolOptionsConfig()
     expiry: ExpiryConfig = ExpiryConfig()
+    factor: FactorConfig = FactorConfig()
     universe: list[InstrumentConfig] = []
 
 
