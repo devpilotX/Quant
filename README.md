@@ -177,6 +177,42 @@ events to the browser in real time.
 
 Test counts: **107 engine tests**, **39 dashboard backend tests**, all green.
 
+## Research tooling (standalone) — `quantsys/research/`
+
+Self-contained, engine-isolated research kit built during the alpha search (final
+verdict: no deployable edge — see `docs/RESEARCH_CLOSEOUT.md`). It imports without
+the live engine/broker and is the recommended way to run any future **forward-only,
+pre-registered** cross-sectional study. Free, point-in-time, survivorship-bias-free
+NSE data — no paid vendor, no VPS needed.
+
+- `bhavcopy.py` — full NSE **cash** daily panel from the public archive CDN (both the
+  legacy `cm…bhav` and 2024-07+ UDiFF formats), on-disk cached. Corporate actions are
+  handled via NSE's ±20% price-band rule (intraday return on split/bonus days).
+- `fno.py` — NSE **F&O** daily: BANKNIFTY index-option OI → PCR, near-month futures,
+  and **point-in-time single-stock-futures membership**.
+- `factors.py` + `xs_backtest.py` — price/volume cross-sectional factors (momentum,
+  low-vol, reversal, illiquidity) and a monthly beta-neutral L/S backtester that
+  reuses the engine's real `CostModel` and metrics.
+- `validation.py` — **PBO** (Probability of Backtest Overfitting, CSCV) and **purged
+  & embargoed K-fold CV** (Lopez de Prado); pairs with `backtest/metrics.py`'s
+  deflated Sharpe + Monte-Carlo bootstrap.
+
+```python
+from datetime import date
+from quantsys.research import bhavcopy as bc
+from quantsys.research import validation as V
+
+panel = bc.build_panel(date(2017, 1, 1), date(2024, 1, 1))   # cached, survivorship-free
+prices = bc.close_panel(panel)                                # date × symbol matrix
+
+pbo = V.pbo_cscv(returns_matrix)        # T×N config returns -> overfit probability
+folds = V.purged_kfold(n, n_splits=5, embargo_pct=0.02)      # leak-free CV splits
+```
+
+Network access is confined to the fetchers' download helpers; the parsers, factors,
+and validators are pure and unit-tested (`tests/test_research.py`,
+`tests/test_combine.py`) with no network. Data caches under `data_cache/` (gitignored).
+
 ## Roadmap (next phases, in order)
 
 1. **Execution layer**: SmartAPI adapter behind a `Broker` interface, WebSocket
