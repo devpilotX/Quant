@@ -183,6 +183,19 @@ class LiveRunner:
             sess.close()
         self.deployable_cap_frac = rc.get("deployable_cap_frac")
         self.deployable_cap_abs = rc.get("deployable_cap_abs")
+        # Durable paper capital: a change via /control/paper-capital (or
+        # scripts/set_paper_capital.py) applies live through the command queue,
+        # but a bare engine restart would otherwise revert to the --capital
+        # bootstrap default. Re-apply the last operator value here so a
+        # terminal-set float persists across restarts. No-op in live mode
+        # (reset_paper_capital only touches a PaperBroker).
+        pc = rc.get("paper_capital")
+        if pc is not None:
+            try:
+                self.reset_paper_capital(float(pc))
+                log.info("durable paper_capital applied on startup: Rs%.0f", float(pc))
+            except (TypeError, ValueError):
+                log.warning("ignoring invalid durable paper_capital=%r", pc)
         for name in [s.name for s in self._all_strategies]:
             if rc.get(f"strategy_enabled.{name}") is False:
                 self.set_strategy_enabled(name, False)

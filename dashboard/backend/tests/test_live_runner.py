@@ -134,6 +134,45 @@ def test_warmup_seeds_histories_from_angel(live_runner, monkeypatch):
     assert all(len(h) == 150 for h in live_runner.histories.values())
 
 
+def test_durable_paper_capital_applied_on_startup(db):
+    """A paper-capital set via the control plane (runtime_config 'paper_capital')
+    is re-applied on engine restart, so a terminal-set float survives a bare
+    restart instead of silently reverting to the --capital bootstrap default."""
+    from quantsys.config import load_config
+    from quantsys.engine.decision import DecisionEngine
+    from quantsys.execution.angelone import AngelOneBroker
+    from qsdash.bridge.live import LiveRunner
+    from qsdash.bridge.paper import PaperBroker
+    from qsdash.bus import make_sync_publisher
+    from qsdash.db import SessionLocal
+    from qsdash.models import RuntimeConfig
+
+    db.query(RuntimeConfig).filter(RuntimeConfig.key == "paper_capital").delete()
+    db.add(RuntimeConfig(key="paper_capital", value={"v": 2_500_000.0}, updated_by="op"))
+    db.commit()
+
+    adapter = AngelOneBroker(api_key="k", client_code="c", mpin="1",
+                             totp_secret="JBSWY3DPEHPK3PXP",
+                             transport=_MockTransport(), instrument_master=_MASTER)
+    adapter.connect()
+    r = LiveRunner.__new__(LiveRunner)
+    r.cfg = load_config(CFG)
+    r.mode = "paper"
+    r.publisher = make_sync_publisher(SessionLocal)
+    r.broker_adapter = adapter
+    r.instruments = r._merge_instruments(adapter.instruments())
+    r.engine = DecisionEngine(r.cfg, instruments=r.instruments)
+    r._all_strategies = list(r.engine.strategies)
+    r._disabled = set()
+    r.broker = PaperBroker("paper", 1_000_000.0, r.instruments,
+                           r.engine.cost_model, r.publisher)
+    assert r.broker.cash == 1_000_000.0       # --capital bootstrap default
+    r._load_runtime_config()
+    assert r.broker.cash == 2_500_000.0       # durable operator value wins
+    db.query(RuntimeConfig).filter(RuntimeConfig.key == "paper_capital").delete()
+    db.commit()
+
+
 def test_set_mode_live_refused_without_passing_backtest(live_runner, db):
     """Even fully armed with a connected adapter, live is refused while only
     synthetic (or no) backtests exist."""
