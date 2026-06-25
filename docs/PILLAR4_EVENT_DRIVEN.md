@@ -177,6 +177,56 @@ locked frame.
 
 ---
 
+## 8a. Price-shock proxy event study (implementable NOW — pre-registered before results)
+
+Since announcement feeds are absent (§1) and an NSE scraper is fragile/low-EV, the
+honest data-available test of "is there an event-drift edge in Indian equities" uses a
+PRICE-SHOCK PROXY: large abnormal-return + volume days stand in for unobserved
+news/earnings events (brief §3 permits a disclosed proxy). This screens whether ANY
+post-event drift exists before investing in a real feed.
+
+**Locked definitions (before looking at any CAAR):**
+- Universe: the live config equities (clean, liquid, sector-labelled); market return =
+  equal-weight mean daily return of that universe.
+- Per stock, day t: standardized return `z_t = r_t / σ_{t-1}` with σ = 60-day rolling
+  std (lagged, no look-ahead); volume ratio `v_t = vol_t / mean(vol_{t-20..t-1})`.
+- **Event = |z_t| ≥ 4.0 AND v_t ≥ 2.0** (a 4σ move on ≥2× volume). Split by direction
+  (up vs down). De-clustered: ≥30 days since the same stock's previous event.
+- Windows: estimation [−250,−30]; reaction [−1,+1]; **drift [+1,+5] and [+1,+20]**.
+- Engine: `research.event_study.run_event_study` → CAAR + BMP + Corrado + sign tests.
+- **Screen rule (not the full gate — this only decides whether a sleeve is worth
+  building):** a direction is a candidate only if its [+1,+20] CAAR is (a) significant
+  (BMP p<0.05 AND a non-parametric test agrees, Bonferroni-aware over the ~4 tests) AND
+  (b) clearly exceeds a ~30 bps round-trip cost. If neither direction qualifies →
+  event-drift edge is absent on available data; STOP (no sleeve). If one qualifies →
+  build that sleeve + run the full 5-criterion gate (§6).
+
+### Result (2026-06-25, `scripts/_pillar4_event_shock.py`) — FIRST event lead
+Config universe (23 eq, 2016–2026), CA-adjusted returns. Events: **143 up-shocks,
+99 down-shocks** (|z|≥4, ≥2× volume, de-clustered). Reaction windows sane (+658 / −687
+bps, the shock itself). Post-event DRIFT:
+
+| Direction | drift [+1,+5] | drift [+1,+20] | verdict |
+|---|---|---|---|
+| UP-shock | −32 bps (ns) | −28 bps (ns) | no drift either way |
+| DOWN-shock | −111 bps (BMP p .004, sign .028) | **−213 bps (BMP p .011, rank .087, sign .003), 66% negative** | **continued DOWN drift** |
+
+**Finding: a significant DOWNSIDE-underreaction drift** — after a 4σ down move on volume,
+the stock keeps drifting ~−2.1% over the next 20 days (a SHORT signal, SSF-tradable).
+Up-shocks show no drift (asymmetry consistent with bad-news-travels-slowly / short-sale
+friction). It **passes the pre-registered screen** (significant on BMP + sign; survives
+Bonferroni over the 2 drift directions; on the sign test even over all 6 cells), and the
+−213 bps swamps ~30 bps cost. **This is the first event-pillar lead that isn't dead on
+arrival** and the first non-meanrev candidate this session.
+
+**HONEST CAVEAT — screen ≠ gate.** This only says "drift exists, worth a sleeve." It is
+NOT yet a deployable edge: ~9 down-shocks/yr is LOW frequency (hard to reach Sharpe≥0.8),
+short-only adds SSF cost + financing + borrow risk, per-event variance is high, and the
+full 5-criterion gate (§6: net Sharpe, deflated by the cumulative n_trials, PBO, MC) is a
+far higher bar this project has never cleared. **Next step (locked):** build the
+down-shock short sleeve (enter +1, hold ~20d, vol-target, SSF costs) and run the full
+gate — expecting it to be the closest event lead but still likely sub-gate.
+
 ## 9. Binding stop-rule
 
 Any sleeve/combo clearing ALL FIVE (§6) → candidate, kept INERT, propose forward-only
@@ -192,7 +242,10 @@ no re-searching, no extra grid, no gate-loosening after the fact.
 - [x] Multiple-testing toolbox confirmed reusable (DSR/PBO/purged-CV/MC).
 - [x] Pre-registration locked (this document).
 - [x] **Meanrev re-test (brief §6) — DONE. VERDICT: DEAD** (below).
-- [ ] Event sleeves — blocked on §8 data decision; engine ready to receive them.
+- [x] **Price-shock proxy event study (§8a) — DONE. Found a DOWN-shock underreaction
+  drift (first event lead, passes screen, not yet gated).**
+- [ ] Down-shock short sleeve + full 5-criterion gate — NEXT (the one live lead).
+- [ ] Announcement-fed sleeves (PEAD/index-rebal/merger/insider) — blocked on §8 data.
 
 ### Meanrev diagnosis result (2026-06-25, `scripts/_pillar4_meanrev_diag.py`)
 Faithful port of `meanrev._fit_pair` (hedge-ratio bounds → ADF p≤0.05 → OU half-life
