@@ -82,14 +82,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://quantsys:${POSTGRES_PASSWORD}@postgres:5432/quantsys
       REDIS_URL: redis://redis:6379/0
-    # --capital 5cr: a NIFTY/BANKNIFTY-FUT lot is ~Rs16L notional; at the old
-    # Rs10L float a single lot blew the 25%/name cap (and T2 only trades the
-    # top-3 by liquidity), so the index futures never sized >0. Rs5cr puts the
-    # paper book at tier T5 (30 instruments >= the full universe) so the index
-    # futures are in-universe and affordable. Paper float only; live is separate.
     command: ["python", "-m", "qsdash.bridge.live",
-              "--config", "/app/engine/config/base.yaml", "--paper",
-              "--capital", "50000000"]
+              "--config", "/app/engine/config/base.yaml", "--paper"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
