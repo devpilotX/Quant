@@ -4,7 +4,7 @@ reconciliation freeze, Angel One adapter against a mock transport."""
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -14,6 +14,7 @@ from quantsys.core.types import (
     InstrumentKind,
     OrderIntent,
     Urgency,
+    now_ist,
 )
 from quantsys.execution.angelone import AngelOneBroker
 from quantsys.execution.broker import BrokerError, BrokerOrder, OrderStatus
@@ -138,6 +139,53 @@ def test_index_resolves_to_amxidx_candle_token():
     assert insts["NIFTY"].token == "99926000"               # AMXIDX, not 26000
     assert insts["NIFTY"].kind == InstrumentKind.INDEX
     assert insts["HDFCBANK"].kind == InstrumentKind.EQUITY   # equities unchanged
+
+
+_MON = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+
+
+def _expiry_str(d: date) -> str:  # Angel master format, locale-independent
+    return f"{d.day:02d}{_MON[d.month - 1]}{d.year}"
+
+
+def test_index_future_resolves_to_front_month():
+    """Regression: the static config symbol 'NIFTY-FUT' must resolve to the
+    NEAREST non-expired dated FUTIDX contract (front month), so the index
+    future gets a real token + data feed. Without this it has NO token -> no
+    websocket subscription -> no bars -> it never enters the tradeable universe
+    (the 'algo takes no index trades' symptom). Dates are relative to today so
+    the test never goes stale."""
+    today = now_ist().date()
+    past, front, far = (today - timedelta(days=30),
+                        today + timedelta(days=5),
+                        today + timedelta(days=40))
+    master = [
+        {"symbol": f"NIFTY{_expiry_str(d)}FUT", "name": "NIFTY", "token": tok,
+         "exch_seg": "NFO", "instrumenttype": "FUTIDX", "expiry": _expiry_str(d),
+         "lotsize": "65", "tick_size": "10"}
+        for d, tok in ((past, "111"), (front, "222"), (far, "333"))
+    ]
+    b = AngelOneBroker(api_key="k", client_code="c", mpin="1234",
+                       totp_secret="JBSWY3DPEHPK3PXP", transport=FakeTransport(),
+                       instrument_master=master)
+    b.connect()
+    insts = b.instruments()
+    assert "NIFTY-FUT" in insts
+    assert insts["NIFTY-FUT"].token == "222"            # front month, not past/far
+    assert insts["NIFTY-FUT"].kind == InstrumentKind.FUTURE
+    assert insts["NIFTY-FUT"].exchange == "NFO"
+    assert insts["NIFTY-FUT"].lot_size == 65
+    assert b._token_to_symbol["222"] == "NIFTY-FUT"     # ticks route to the alias
+
+
+def test_parse_expiry():
+    from quantsys.execution.angelone import _parse_expiry
+    assert _parse_expiry("30JUN2026") == date(2026, 6, 30)
+    assert _parse_expiry("07JUL2026") == date(2026, 7, 7)
+    assert _parse_expiry(None) is None
+    assert _parse_expiry("") is None
+    assert _parse_expiry("BADVALUE") is None
 
 
 def test_funds_and_positions(broker):

@@ -22,13 +22,15 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 
 from quantsys.core.types import (
     ExecutionStyle,
     Instrument,
     InstrumentKind,
     Urgency,
+    now_ist,
 )
 from quantsys.execution.broker import (
     Broker,
@@ -194,6 +196,36 @@ class AngelOneBroker:
         for name, inst in index_by_name.items():
             out[name] = inst
             self._token_to_symbol[inst.token] = name
+        # Continuous near-month FUTURES aliases. The config universe uses static
+        # rolling symbols ("NIFTY-FUT", "BANKNIFTY-FUT"), but the master only
+        # carries DATED contracts ("NIFTY30JUN26FUT", ...). Resolve each
+        # "<NAME>-FUT" to the nearest NON-EXPIRED index-future (FUTIDX) so the
+        # engine gets a real token + data feed. Without this the index futures
+        # have NO token -> no websocket subscription -> no bars -> they never
+        # enter the tradeable universe (the "algo takes no index trades"
+        # symptom). The alias re-rolls to the next contract each time the master
+        # is (re)loaded at startup.
+        fut_rows: dict[str, list[dict]] = {}
+        for row in master:
+            if (row.get("instrumenttype") or "").upper() == "FUTIDX" and row.get("name"):
+                fut_rows.setdefault(row["name"].upper(), []).append(row)
+        today = now_ist().date()
+        for name, rows in fut_rows.items():
+            dated = []
+            for r in rows:
+                d = _parse_expiry(r.get("expiry"))
+                if d is not None:
+                    dated.append((d, r))
+            if not dated:
+                continue
+            dated.sort(key=lambda x: x[0])
+            front = next((r for d, r in dated if d >= today), dated[-1][1])
+            inst = out.get(front.get("symbol"))
+            if inst is None:
+                continue
+            alias = f"{name}-FUT"
+            out[alias] = replace(inst, symbol=alias)
+            self._token_to_symbol[inst.token] = alias
         self._instruments = out
         return out
 
@@ -399,6 +431,23 @@ class AngelOneBroker:
             avg_fill_price=float(r.get("averageprice", 0) or 0),
             reject_reason=r.get("text", "") if status == OrderStatus.REJECTED else "",
         )
+
+
+_MONTHS = {m: i for i, m in enumerate(
+    ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), start=1)}
+
+
+def _parse_expiry(s: str | None) -> date | None:
+    """Parse an Angel master expiry like '30JUN2026' (DDMONYYYY, zero-padded)
+    into a date. Returns None when absent or unparseable (e.g. a cash-segment
+    row with no expiry), so callers can simply skip it."""
+    if not s or len(s) != 9:
+        return None
+    try:
+        return date(int(s[5:9]), _MONTHS[s[2:5].upper()], int(s[0:2]))
+    except (KeyError, ValueError):
+        return None
 
 
 def _infer_kind(row: dict) -> InstrumentKind:
