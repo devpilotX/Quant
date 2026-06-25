@@ -191,7 +191,7 @@ no re-searching, no extra grid, no gate-loosening after the fact.
 - [x] Event-study core engine + 3 significance tests + look-ahead guard (`event_study.py`), 7/7 tests green, ruff clean.
 - [x] Multiple-testing toolbox confirmed reusable (DSR/PBO/purged-CV/MC).
 - [x] Pre-registration locked (this document).
-- [~] **Meanrev re-test (brief §6)** — diagnosis DONE (below); grid backtest next.
+- [x] **Meanrev re-test (brief §6) — DONE. VERDICT: DEAD** (below).
 - [ ] Event sleeves — blocked on §8 data decision; engine ready to receive them.
 
 ### Meanrev diagnosis result (2026-06-25, `scripts/_pillar4_meanrev_diag.py`)
@@ -209,8 +209,31 @@ panel, config-universe same-sector pairs, IS 2017-2023, lookback 500:
   unlikely to clear the gate. (Caveat: live meanrev runs at ~45-min bars; this is a
   daily-timeframe diagnosis, a cleaner/lower-noise test that is generous to finding
   cointegration — if anything it overstates pair availability vs intraday.)
-- **Next:** the pre-registered z×lookback grid (12 trials, §5) measured on NET-of-cost
-  OOS edge against the full gate (§6) — i.e. does any (z, lookback) actually clear, or
-  is meanrev honest-no-edge because the formed pairs don't pay after costs.
+### Meanrev z×lookback grid RE-TEST result (2026-06-25, `scripts/_pillar4_meanrev_retest.py`)
+Net-of-cost pairs backtest faithful to the engine (same qualification + z entry/exit/
+stop/time-stop, max 5 pairs), long=delivery equity (28bps RT), short=SSF future (9bps
+RT)+1.5%/yr financing. Walk-forward, IS-select → hold-out once, deflate by n_trials=12.
+Daily-timeframe caveat as above. Effective trading window 2019–2026 (cache starts 2016,
+minus the 750-day warmup).
+
+- **z_entry IS a real lever** (z=1.0→103 trades @ mean|z|2.8; z=2.5→34 @ mean|z|6.3) —
+  confirming the diagnosis (pairs form & trade). Per-trade net is faintly positive at
+  short lookback (+24–41 bps), so there is a *whisper* of a signal.
+- **But it does not survive as a portfolio.** Grid OOS: lb=250 ≈ flat (−0.27…+0.21
+  Sharpe), lb=500/750 clearly negative (−0.4…−0.74 Sharpe, 25–43% drawdowns from stale
+  equilibria breaking down OOS). **IS-selected winner (z=2.5, lb=500): OOS Sharpe −0.67,
+  CAGR −10.2%, maxDD −25%, Deflated 0.009, PBO 0.64, P(SR<0) 0.85 → FAILS ALL FIVE.**
+- **No (z, lookback) clears the gate.** The lone positive-OOS cell (z=2.5/lb=250, +0.21
+  Sharpe / +0.4% CAGR) is tiny, fails the gate, and is NOT the IS-selected config —
+  i.e., **changing the entry-z does NOT rescue meanrev** (the owner's hypothesis is
+  tested and rejected). Honest cause: faint per-trade signal swamped by costs + negative
+  tail (correlated stop-outs when cointegration breaks) + OOS instability.
+- **VERDICT: DEAD** per the stop-rule §9 — no re-weight, no re-search, STOP.
+
+**Process note (honesty):** the first run showed an absurd mean entry-z ≈ 75; a
+trade-level probe caught it (the simulator double-subtracted the regression intercept,
+`z=(resid−theta)/σ` instead of `resid/σ`). Fixed (`z=resid/σ`); the synthetic self-test
+had masked it by using theta≈0. The numbers above are post-fix. This is logged so the
+record shows the bug was found by verification, not buried.
 - [ ] Portfolio correlation + combination — after ≥1 sleeve clears.
 - [ ] Final gated metrics table + verdict.
