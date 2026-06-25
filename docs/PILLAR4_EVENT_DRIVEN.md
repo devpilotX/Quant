@@ -227,6 +227,41 @@ far higher bar this project has never cleared. **Next step (locked):** build the
 down-shock short sleeve (enter +1, hold ~20d, vol-target, SSF costs) and run the full
 gate — expecting it to be the closest event lead but still likely sub-gate.
 
+### Down-shock sleeve — FULL GATE result (2026-06-25, `scripts/_pillar4_downshock_sleeve.py`)
+Market-NEUTRAL short sleeve (short the shocked stock, beta-hedged → trade the abnormal
+drift the study measured): daily P&L = −AR over [+1,+hold], 2-leg futures cost 17 bps RT
++ 1.5%/yr financing, ≤5 concurrent. Pre-registered grid z∈{3.5,4,4.5}×hold∈{10,20,30}
+(9 configs), IS-select → hold-out once, DSR with **cumulative n_trials=21** (12 meanrev +
+9 here). Self-test (a known −drift event book profits the short) passes.
+
+**IS-selected winner z=3.5/hold=10 → HOLD-OUT (2024+): Sharpe 1.75, CAGR 7.2%, maxDD −2.1%.**
+
+| Gate criterion | Value | |
+|---|---|---|
+| OOS Sharpe ≥ 0.80 | **1.75** | ✅ PASS |
+| Deflated Sharpe ≥ 0.95 | **0.46** | ❌ **FAIL** |
+| MC P(SR<0) ≤ 0.10 | 0.002 | ✅ PASS |
+| PBO ≤ 0.50 | 0.31 | ✅ PASS |
+| net CAGR > 0 | +7.2% | ✅ PASS |
+
+**VERDICT: DEAD — 4 of 5 pass, but it FAILS the deflated Sharpe (0.46 < 0.95).** This is
+the **CLOSEST anything in this entire project has come** (prior best deflated ≈ 0.69 on
+the combine-survivors test). But the deflation gate is doing exactly its job: OOS Sharpe
+1.75 is *higher* than IS 0.57 — a red flag that the hold-out result is partly
+favourable-regime luck (the IS window includes COVID, where down-shocks V-reverse and
+squeeze shorts; the low-frequency ~10 events/yr + 2.5y hold-out make the raw Sharpe
+noisy), and DSR with n_trials=21 correctly discounts it to 0.46 = "not distinguishable
+from selection bias." Per the **binding stop-rule (§9/§12): declared DEAD, STOPPED — NO
+re-weighting, NO re-searching, NO threshold tweak to force deflation over 0.95** (that
+would be the p-hacking the brief forbids).
+
+**But it is the best forward-study candidate the project has.** The only legitimate next
+step (never re-tuning this sample) is a SEPARATE, newly-pre-registered **FORWARD-only**
+OOS study — more years and/or live paper — to see if the down-shock underreaction
+survives out-of-sample in real time. Economically it's grounded (downside underreaction /
+slow bad-news diffusion), market-neutral, low-drawdown — worth forward tracking, not
+worth deploying on this evidence.
+
 ## 9. Binding stop-rule
 
 Any sleeve/combo clearing ALL FIVE (§6) → candidate, kept INERT, propose forward-only
@@ -244,7 +279,9 @@ no re-searching, no extra grid, no gate-loosening after the fact.
 - [x] **Meanrev re-test (brief §6) — DONE. VERDICT: DEAD** (below).
 - [x] **Price-shock proxy event study (§8a) — DONE. Found a DOWN-shock underreaction
   drift (first event lead, passes screen, not yet gated).**
-- [ ] Down-shock short sleeve + full 5-criterion gate — NEXT (the one live lead).
+- [x] **Down-shock short sleeve + full 5-criterion gate — DONE. 4/5 pass, FAILS the
+  deflated Sharpe (0.46) → DEAD, but project-best lead (OOS Sharpe 1.75); forward-study
+  candidate only.**
 - [ ] Announcement-fed sleeves (PEAD/index-rebal/merger/insider) — blocked on §8 data.
 
 ### Meanrev diagnosis result (2026-06-25, `scripts/_pillar4_meanrev_diag.py`)
