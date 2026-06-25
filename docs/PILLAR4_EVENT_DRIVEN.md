@@ -191,7 +191,26 @@ no re-searching, no extra grid, no gate-loosening after the fact.
 - [x] Event-study core engine + 3 significance tests + look-ahead guard (`event_study.py`), 7/7 tests green, ruff clean.
 - [x] Multiple-testing toolbox confirmed reusable (DSR/PBO/purged-CV/MC).
 - [x] Pre-registration locked (this document).
-- [ ] **Meanrev re-test (brief §6)** — next; implementable now on existing price data.
+- [~] **Meanrev re-test (brief §6)** — diagnosis DONE (below); grid backtest next.
 - [ ] Event sleeves — blocked on §8 data decision; engine ready to receive them.
+
+### Meanrev diagnosis result (2026-06-25, `scripts/_pillar4_meanrev_diag.py`)
+Faithful port of `meanrev._fit_pair` (hedge-ratio bounds → ADF p≤0.05 → OU half-life
+∈[10,200] → split-half κ-stability ≤2.5) on the **daily** survivorship-free bhavcopy
+panel, config-universe same-sector pairs, IS 2017-2023, lookback 500:
+
+- **23 equities, 35 same-sector pairs. Every one of 20 rolling windows had ≥1
+  qualifying cointegrated pair (100%); mean 5, max 10; 30/35 pairs qualified at some
+  point.** → **PAIRS FORM.** Dormancy is NOT a no-signal problem.
+- **This corrects the brief's premise** ("~0 valid pairs over 7 years"): pairs form
+  readily. It matches the prior careful 15-min finding (107 pairs formed and *traded*
+  but were blocked by the **cost gate**, gross-negative). So the z-threshold change is
+  meaningful, but the binding constraint is **net-of-cost edge** — a threshold alone is
+  unlikely to clear the gate. (Caveat: live meanrev runs at ~45-min bars; this is a
+  daily-timeframe diagnosis, a cleaner/lower-noise test that is generous to finding
+  cointegration — if anything it overstates pair availability vs intraday.)
+- **Next:** the pre-registered z×lookback grid (12 trials, §5) measured on NET-of-cost
+  OOS edge against the full gate (§6) — i.e. does any (z, lookback) actually clear, or
+  is meanrev honest-no-edge because the formed pairs don't pay after costs.
 - [ ] Portfolio correlation + combination — after ≥1 sleeve clears.
 - [ ] Final gated metrics table + verdict.
