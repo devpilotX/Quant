@@ -49,6 +49,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       ENV: prod
       COOKIE_SECURE: "true"
+      DOWNSHOCK_DIR: /research/downshock   # read-only research-monitor data (down-shock tracker)
+    volumes:
+      - ./_audit/downshock:/research/downshock:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

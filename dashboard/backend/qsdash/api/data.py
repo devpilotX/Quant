@@ -7,14 +7,16 @@ stale, never as live.
 
 from __future__ import annotations
 
+import json
 import math
-from datetime import datetime, timedelta
+import os
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from qsdash.config import settings
 from qsdash.db import now_ist
 from qsdash.deps import current_session, get_db
 from qsdash.models import (
@@ -582,6 +584,39 @@ def config_versions(limit: int = 200, db: Session = Depends(get_db)):
         "id": r.id, "ts": _iso(r.ts), "username": r.username, "key": r.key,
         "old_value": r.old_value, "new_value": r.new_value, "reason": r.reason,
     } for r in rows]
+
+
+@router.get("/downshock")
+def downshock_tracker():
+    """Forward paper-tracker for the Pillar-4 down-shock lead — a READ-ONLY
+    research monitor (trades nothing). Reads the JSON/CSV the VPS daily job
+    writes; absent => not available (local/dev), which the UI shows as 'not
+    running'. The forward curve is cum-return per run-date (deduped)."""
+    base = Path(os.environ.get("DOWNSHOCK_DIR", "/research/downshock"))
+    state_f = base / "state.json"
+    if not state_f.exists():
+        return {"available": False}
+    try:
+        state = json.loads(state_f.read_text())
+    except (ValueError, OSError):
+        return {"available": False}
+    history: dict[str, dict] = {}
+    log_f = base / "state.log.csv"
+    if log_f.exists():
+        for line in log_f.read_text().splitlines()[1:]:
+            p = line.split(",")
+            if len(p) < 6:
+                continue
+            try:
+                history[p[0]] = {           # dedupe by run-date (keep last/day)
+                    "date": p[0], "forward_events": int(p[2]),
+                    "cum_return": float(p[4]),
+                    "sharpe": None if p[5] in ("None", "") else float(p[5]),
+                }
+            except ValueError:
+                continue
+    return {"available": True, "state": state,
+            "history": [history[k] for k in sorted(history)]}
 
 
 @router.get("/bars/{symbol}")

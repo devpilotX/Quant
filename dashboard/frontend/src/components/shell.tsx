@@ -25,6 +25,7 @@ const NAV: [string, string][] = [
   ["/risk", "Risk"],
   ["/capital", "Capital & Tiers"],
   ["/backtests", "Backtests"],
+  ["/downshock", "Down-shock"],
   ["/logs", "Logs & Alerts"],
   ["/db", "Database"],
   ["/settings", "Settings"],
