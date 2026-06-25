@@ -282,6 +282,11 @@ no re-searching, no extra grid, no gate-loosening after the fact.
 - [x] **Down-shock short sleeve + full 5-criterion gate — DONE. 4/5 pass, FAILS the
   deflated Sharpe (0.46) → DEAD, but project-best lead (OOS Sharpe 1.75); forward-study
   candidate only.**
+- [x] **Forward paper-tracker DEPLOYED + LIVE** (`research/downshock_tracker.py`, +3 tests):
+  frozen-config (z3.5/hold10, market-neutral short), zero-risk OOS log. Running daily on
+  the VPS via `quant-downshock.timer` (20:30 IST) at `deploy/_audit/downshock/`;
+  `tracking_start=2026-06-25`. Recomputes the forward record idempotently from a frozen
+  start — the honest test of whether the lead is real edge or regime luck. Trades nothing.
 - [ ] Announcement-fed sleeves (PEAD/index-rebal/merger/insider) — blocked on §8 data.
 
 ### Meanrev diagnosis result (2026-06-25, `scripts/_pillar4_meanrev_diag.py`)
