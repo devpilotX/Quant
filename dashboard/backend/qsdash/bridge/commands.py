@@ -154,6 +154,18 @@ class CommandConsumer:
             r.apply_config_override(key, value)
             return {"ok": True, "key": key, "value": value}
 
+        if kind in ("engine_pause", "engine_resume"):
+            # Pause HALTS the decision loop without flattening (distinct from
+            # kill, which flattens). Persisted so a pause survives an engine
+            # restart — you must explicitly resume. Bars keep recording; the
+            # engine just stops deciding/executing.
+            paused = kind == "engine_pause"
+            r.paused = paused
+            self._set_rc(sess, "engine_paused", paused)
+            return {"ok": True, "paused": paused,
+                    "note": "decision loop halted (no flatten)" if paused
+                    else "decision loop resumed"}
+
         raise _Reject(f"unknown command kind {kind!r}")
 
 

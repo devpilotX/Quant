@@ -100,6 +100,7 @@ class LiveRunner:
         self._started_monotonic = 0.0
         self.aggregator = BarAggregator(self.cfg.engine.decision_bar_minutes,
                                         self._on_completed_bar)
+        self.paused = False              # operator pause: halt decisions, no flatten
         self._publish_config_snapshot()
         self._load_runtime_config()
 
@@ -183,6 +184,7 @@ class LiveRunner:
             sess.close()
         self.deployable_cap_frac = rc.get("deployable_cap_frac")
         self.deployable_cap_abs = rc.get("deployable_cap_abs")
+        self.paused = bool(rc.get("engine_paused", False))  # durable across restart
         # Durable paper capital: a change via /control/paper-capital (or
         # scripts/set_paper_capital.py) applies live through the command queue,
         # but a bare engine restart would otherwise revert to the --capital
@@ -259,6 +261,17 @@ class LiveRunner:
             if h is not None:
                 h.append(bar)
         self.recorder.record_bars(self.cfg.engine.decision_bar_minutes, batch)
+
+        if self.paused:
+            # operator pause: bars recorded (strategies stay warm), decision loop
+            # halted — no reconcile/decide/execute, NO flatten (distinct from kill).
+            self.recorder.heartbeat(
+                status="paused", market_open=is_session_open(ts),
+                detail={"data_source": "angelone", "venue": self.mode,
+                        "bar_ts": ts.isoformat(),
+                        "note": "operator pause: decisions halted, not flattened"})
+            self.commands.poll()
+            return
 
         prices = self.current_prices()
 
@@ -379,8 +392,8 @@ class LiveRunner:
             for s, rows in per_sym.items():
                 i = idx[s]
                 if i < len(rows) and rows[i][0] == ts:
-                    _, o, h, l, c, v = rows[i]
-                    self.histories[s].append(Bar(ts=ts, open=o, high=h, low=l,
+                    _, o, h, lo, c, v = rows[i]
+                    self.histories[s].append(Bar(ts=ts, open=o, high=h, low=lo,
                                                  close=c, volume=v))
                     self._last_prices[s] = c
                     idx[s] = i + 1
@@ -441,7 +454,8 @@ class LiveRunner:
                 if time.monotonic() - last_heartbeat > 10:
                     feed_age = self.feed.seconds_since_tick() if self.feed else None
                     self.recorder.heartbeat(
-                        status="idle" if not is_session_open(now) else "running",
+                        status=("paused" if self.paused else
+                                "idle" if not is_session_open(now) else "running"),
                         market_open=is_session_open(now),
                         detail={"venue": self.mode, "data_source": "angelone",
                                 "feed_age_s": (round(feed_age, 1)

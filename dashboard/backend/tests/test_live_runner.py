@@ -195,7 +195,7 @@ def test_set_mode_live_refused_without_passing_backtest(live_runner, db):
 
 
 def test_set_mode_live_allowed_with_passing_backtest(live_runner, db):
-    from qsdash.models import BacktestRun, Command, RuntimeConfig
+    from qsdash.models import BacktestRun, Command
 
     db.query(BacktestRun).delete()
     db.add(BacktestRun(label="real", metrics={
@@ -214,3 +214,59 @@ def test_set_mode_live_allowed_with_passing_backtest(live_runner, db):
     assert cmd.result.get("mode") == "live"
     db.query(BacktestRun).delete()
     db.commit()
+
+
+# --------------------------------------------------- engine pause / resume
+def test_engine_pause_resume_via_command(live_runner, db):
+    """Pause/resume flow through the command queue: the consumer flips the
+    runner flag AND persists it (engine_paused) so a pause survives a restart."""
+    from qsdash.models import Command, RuntimeConfig
+
+    db.query(RuntimeConfig).filter(RuntimeConfig.key == "engine_paused").delete()
+    db.commit()
+    live_runner.paused = False
+
+    db.add(Command(created_by="t", kind="engine_pause", payload={}))
+    db.commit()
+    live_runner.commands.poll()
+    cmd = (db.query(Command).filter(Command.kind == "engine_pause")
+           .order_by(Command.id.desc()).first())
+    assert cmd.status == "done" and cmd.result["paused"] is True
+    assert live_runner.paused is True
+    rc = db.query(RuntimeConfig).filter(RuntimeConfig.key == "engine_paused").first()
+    assert rc.value["v"] is True                       # durable across restart
+
+    db.add(Command(created_by="t", kind="engine_resume", payload={}))
+    db.commit()
+    live_runner.commands.poll()
+    assert live_runner.paused is False
+
+    db.query(Command).filter(Command.kind.in_(("engine_pause", "engine_resume"))
+                             ).delete(synchronize_session=False)
+    db.query(RuntimeConfig).filter(RuntimeConfig.key == "engine_paused").delete()
+    db.commit()
+
+
+def test_paused_runner_records_bars_but_skips_decisions(db, monkeypatch):
+    """Pause HALTS decide/execute (no flatten) but keeps recording bars, so the
+    strategies stay warm for resume."""
+    from datetime import datetime
+
+    from quantsys.core.types import Bar
+    from qsdash.bridge.runner import Runner
+    from qsdash.models import RuntimeConfig
+
+    db.query(RuntimeConfig).filter(RuntimeConfig.key == "engine_paused").delete()
+    db.commit()
+    r = Runner(CFG, mode="paper", paper_capital=1_000_000.0)
+    flags = {"decide": 0}
+    monkeypatch.setattr(r.engine, "decide",
+                        lambda *a, **k: flags.__setitem__("decide", flags["decide"] + 1))
+    sym = next(iter(r.engine.instruments))
+    bar = Bar(ts=datetime(2026, 6, 12, 9, 15), open=100.0, high=101.0,
+              low=99.0, close=100.0, volume=1000.0)
+
+    r.paused = True
+    r.step(datetime(2026, 6, 12, 9, 15), {sym: bar}, "test")
+    assert flags["decide"] == 0                # decision loop halted, not flattened
+    assert len(r.histories[sym]) == 1          # but the bar WAS recorded (stays warm)

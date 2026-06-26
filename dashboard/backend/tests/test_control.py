@@ -110,3 +110,20 @@ def test_config_keys_allowlisted(authed, totp):
 def test_kill_requires_reauth(authed):
     r = authed.post("/api/control/kill", json={"action": "kill"})
     assert r.status_code == 403
+
+
+def test_engine_pause_requires_reauth(authed):
+    r = authed.post("/api/control/engine", json={"action": "pause"})
+    assert r.status_code == 403
+    assert "re-authentication" in r.json()["detail"]
+
+
+def test_engine_pause_resume_queue_commands(authed, totp, db):
+    _reauth(authed, totp)
+    r = authed.post("/api/control/engine", json={"action": "pause", "reason": "maint"})
+    assert r.status_code == 200
+    cmd = db.get(Command, r.json()["command_id"])
+    assert cmd is not None and cmd.kind == "engine_pause" and cmd.status == "pending"
+    r2 = authed.post("/api/control/engine", json={"action": "resume"})
+    assert r2.status_code == 200
+    assert db.get(Command, r2.json()["command_id"]).kind == "engine_resume"

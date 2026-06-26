@@ -134,6 +134,11 @@ class ConfigBody(BaseModel):
     reason: str = ""
 
 
+class EngineBody(BaseModel):
+    action: Literal["pause", "resume"]
+    reason: str = ""
+
+
 # ---------------------------------------------------------------- endpoints
 @router.post("/mode")
 def set_mode(body: ModeBody, request: Request, db: Session = Depends(get_db),
@@ -288,6 +293,26 @@ def set_config(body: ConfigBody, request: Request, db: Session = Depends(get_db)
     db.commit()
     _publish_command(cmd)
     return {"ok": True, "command_id": cmd.id}
+
+
+@router.post("/engine")
+def engine_control(body: EngineBody, request: Request, db: Session = Depends(get_db),
+                   sess: AuthSession = Depends(require_fresh_reauth)):
+    """Pause/resume the engine's decision loop. Pause HALTS new decisions WITHOUT
+    flattening (use /kill to flatten); resume restarts it. Durable (persisted, so
+    a pause survives a restart). Same CSRF + fresh-reauth + queue + audit + alert
+    path as every other control; the engine acks via the command queue."""
+    username = _username(db, sess)
+    kind = "engine_pause" if body.action == "pause" else "engine_resume"
+    cmd = _enqueue(db, username, kind, {"reason": body.reason})
+    audit(db, username, f"control.engine.{body.action}",
+          {"reason": body.reason}, client_ip(request))
+    raise_alert(db, severity="warn", kind=f"engine_{body.action}",
+                title=f"Engine {body.action} requested",
+                body=f"by {username}: {body.reason}")
+    db.commit()
+    _publish_command(cmd)
+    return {"ok": True, "command_id": cmd.id, "action": body.action}
 
 
 @router.get("/commands")

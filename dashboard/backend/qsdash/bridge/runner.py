@@ -66,6 +66,7 @@ class Runner:
         # the paper runner can NEVER trade real money — the live gate sees this
         self.supports_live = False
         self.adapter_connected = False
+        self.paused = False              # operator pause: halt decisions, no flatten
         self._load_runtime_config()
         self.broker.load_open_state()
         for sym, pos in self.broker.positions.items():
@@ -82,6 +83,7 @@ class Runner:
             self.broker.cash = float(rc["paper_capital"])
         self.deployable_cap_frac = rc.get("deployable_cap_frac")
         self.deployable_cap_abs = rc.get("deployable_cap_abs")
+        self.paused = bool(rc.get("engine_paused", False))  # durable across restart
         for name in [s.name for s in self._all_strategies]:
             enabled = rc.get(f"strategy_enabled.{name}")
             if enabled is False:
@@ -171,6 +173,16 @@ class Runner:
                 self._last_prices[sym] = bar.close
                 known[sym] = bar
         self.recorder.record_bars(self.cfg.engine.decision_bar_minutes, known)
+
+        if self.paused:
+            # operator pause: bars recorded (strategies stay warm), but the
+            # decision loop is halted — no decide, no execute, NO flatten.
+            self.recorder.heartbeat(
+                status="paused", market_open=is_session_open(ts),
+                detail={"data_source": data_source, "bar_ts": ts.isoformat(),
+                        "note": "operator pause: decisions halted, not flattened"})
+            self.commands.poll()
+            return
 
         prices = self.current_prices()
         equity = self.broker.equity(prices)
