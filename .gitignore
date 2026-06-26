@@ -45,3 +45,6 @@ VPS_DEPLOYMENT_REPORT.*
 # VPS-local: DB dumps and host-specific compose override
 deploy/backups/
 deploy/docker-compose.override.yml
+
+# backend test SQLite DB (generated per session by conftest)
+dashboard/backend/tests/_tmp/
