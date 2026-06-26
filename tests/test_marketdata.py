@@ -141,7 +141,12 @@ def test_feed_close_callback_tolerates_sdk_arity():
 
 
 # --------------------------------------------------- reconnect / re-auth
-def test_feed_supervisor_reconnects_and_reauths():
+def test_feed_supervisor_reconnects_and_reauth_is_rate_limited():
+    """The supervisor rebuilds the socket every time it dies, but re-auth is
+    RATE-LIMITED — it refreshes the token on the first reconnect and then REUSES
+    it. (Re-logging in / generateSession on every reconnect hammered the broker
+    and fed the 2026-06-26 SSL-race memory runaway.) Many reconnects, one re-auth.
+    """
     built: list[_FakeSws] = []
     reauth_calls: list[int] = []
 
@@ -156,16 +161,42 @@ def test_feed_supervisor_reconnects_and_reauths():
 
     feed = _make_feed(reauth=reauth, ws_factory=factory,
                       is_open=lambda: False,  # keep the watchdog out of it
-                      initial_backoff=0.01, max_backoff=0.02)
+                      initial_backoff=0.01, max_backoff=0.02)  # default reauth_min_interval=300s
     feed.start()
     deadline = time.monotonic() + 3.0
-    while len(built) < 3 and time.monotonic() < deadline:
+    while len(built) < 5 and time.monotonic() < deadline:
         time.sleep(0.01)
     feed.stop()
 
-    assert len(built) >= 3            # rebuilt the socket every time it died
-    assert len(reauth_calls) >= 2     # re-authenticated before reconnecting
-    assert feed.auth_token == "fresh" and feed.feed_token == "ft2"  # tokens refreshed
+    assert len(built) >= 5            # rebuilt the socket every time it died
+    assert len(reauth_calls) == 1     # re-auth ONCE (rate-limited), not per reconnect
+    assert feed.auth_token == "fresh" and feed.feed_token == "ft2"  # token refreshed
+
+
+def test_feed_reauth_recurs_after_interval():
+    """Re-auth still RECURS after reauth_min_interval (a stale Monday token must
+    refresh) — just far less often than reconnects, so it never storms."""
+    built: list[_FakeSws] = []
+    reauth_calls: list[float] = []
+
+    def factory(auth, key, code, feed):
+        s = _FakeSws(block=False)
+        built.append(s)
+        return s
+
+    def reauth():
+        reauth_calls.append(time.monotonic())
+        return {}
+
+    feed = _make_feed(reauth=reauth, ws_factory=factory, is_open=lambda: False,
+                      initial_backoff=0.005, max_backoff=0.01, reauth_min_interval=0.1)
+    feed.start()
+    time.sleep(0.6)
+    feed.stop()
+
+    assert len(built) >= 8                       # many reconnects
+    assert len(reauth_calls) >= 2                # re-auth recurred (token refresh works)
+    assert len(reauth_calls) < len(built)        # but rate-limited, not every reconnect
 
 
 def test_feed_watchdog_forces_reconnect_on_silent_feed():

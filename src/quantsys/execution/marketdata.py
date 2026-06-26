@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -128,7 +127,8 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
                  ws_factory: Callable[..., object] | None = None,
                  is_open: Callable[[], bool] | None = None,
                  stale_seconds: float = 90.0, initial_backoff: float = 1.0,
-                 max_backoff: float = 60.0, watchdog_interval: float = 15.0):
+                 max_backoff: float = 60.0, watchdog_interval: float = 15.0,
+                 reauth_min_interval: float = 300.0):
         self.auth_token = auth_token
         self.api_key = api_key
         self.client_code = client_code
@@ -148,6 +148,9 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
         self._lock = threading.Lock()
         self._last_tick = 0.0       # monotonic; 0.0 => no tick yet
         self._connected_at = 0.0    # monotonic of last socket (re)build; 0 => down
+        self._reauth_min_interval = reauth_min_interval
+        self._last_reauth = 0.0     # monotonic of last generateSession; 0 => never
+        self._ticks_this_conn = 0   # ticks delivered by the CURRENT socket
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -179,6 +182,7 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
             vol = message.get("volume_trade_for_the_day")
             with self._lock:
                 self._last_tick = time.monotonic()
+                self._ticks_this_conn += 1
             # now_ist(), NOT datetime.now(): the VPS container runs in UTC and
             # the aggregator buckets against the 09:15 IST session open.
             self.aggregator.on_tick(sym, price, now_ist(),
@@ -229,7 +233,8 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
     def _supervise(self) -> None:
         backoff = self._initial_backoff
         while not self._stop.is_set():
-            t0 = time.monotonic()
+            with self._lock:
+                self._ticks_this_conn = 0  # only a tick-delivering socket is healthy
             try:
                 sws = self._ws_factory(self.auth_token, self.api_key,
                                        self.client_code, self.feed_token)
@@ -243,16 +248,30 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
             with self._lock:
                 self._sws = None
                 self._connected_at = 0.0  # mark down so the watchdog stays quiet
+                had_ticks = self._ticks_this_conn > 0
             if self._stop.is_set():
                 break
-            if time.monotonic() - t0 >= 30:
-                backoff = self._initial_backoff  # a healthy session => reset
-            log.warning("feed: socket down — re-auth + reconnect in %.0fs", backoff)
+            # Reset backoff only when the socket actually delivered ticks. The old
+            # code reset on "connection lasted >=30s", but a 'connected but silent'
+            # socket lives ~90s before the watchdog recycles it — that read as
+            # healthy, pinned backoff at 1s and produced a reconnect storm (which
+            # drove the SSL-race memory runaway). Now a silent socket backs off.
+            if had_ticks:
+                backoff = self._initial_backoff
+            else:
+                backoff = min(self._max_backoff,
+                              max(self._initial_backoff, backoff * 2))
+            # Re-auth is RATE-LIMITED: a fresh generateSession on every reconnect
+            # hammered the broker and fed the runaway. The day's feed token stays
+            # valid, so refresh at most every reauth_min_interval — the first
+            # reconnect still refreshes, so a stale Monday token recovers promptly.
+            now = time.monotonic()
+            if now - self._last_reauth >= self._reauth_min_interval:
+                self._do_reauth()
+                self._last_reauth = now
+            log.warning("feed: socket down — reconnect in %.0fs", backoff)
             if self._stop.wait(backoff):
                 break
-            self._do_reauth()
-            backoff = min(self._max_backoff,
-                          max(self._initial_backoff, backoff * 2))
 
     def _watchdog(self) -> None:
         while not self._stop.wait(self._watchdog_interval):
