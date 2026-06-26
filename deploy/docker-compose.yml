@@ -78,6 +78,12 @@ services:
   # paper on LIVE Angel One data — the VPS validation profile (no real orders).
   engine-paper:
     profiles: ["paper"]
+    # Containment (audit 2026-06-26): the engine has a memory-runaway bug that,
+    # uncapped, exhausts the whole shared host's RAM and triggers a GLOBAL kernel
+    # OOM (it starved Postgres). Cap it so a leak can only cgroup-OOM the engine
+    # itself, never the host. Remove/raise once the leak root cause is fixed.
+    mem_limit: 2g
+    memswap_limit: 2g
     build: { context: .., dockerfile: dashboard/backend/Dockerfile }
     restart: unless-stopped
     healthcheck: { disable: true }
