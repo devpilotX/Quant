@@ -40,7 +40,12 @@ def daily_returns(tidy: pd.DataFrame, ca_band: float = 0.20) -> pd.DataFrame:
     ret = close/open-1 on corporate-action days (|open/prevclose-1| > band),
     else close/prevclose-1; winsorized to ±band as a backstop."""
     df = tidy.copy()
-    o, c, pc = df["open"], df["close"], df["prevclose"]
+    # Coerce to float: parquet may store these as object dtype, which pandas 3.0's
+    # stricter np.isfinite rejects ("ufunc 'isfinite' not supported"). No-op when
+    # already numeric.
+    o = pd.to_numeric(df["open"], errors="coerce")
+    c = pd.to_numeric(df["close"], errors="coerce")
+    pc = pd.to_numeric(df["prevclose"], errors="coerce")
     gap = o / pc - 1.0
     intraday = c / o - 1.0
     normal = c / pc - 1.0
