@@ -32,7 +32,7 @@ def raise_alert(db: Session, *, severity: str, kind: str, title: str,
               delivery_detail={"status": "pending"} if chans else {})
     db.add(a)
     db.flush()
-    enqueue_delivery(a.id, severity, title, body)
+    enqueue_delivery(a.id, severity, title, body, kind=kind)
     if publish is not None:
         publish("alerts", {
             "id": a.id, "severity": severity, "kind": kind,

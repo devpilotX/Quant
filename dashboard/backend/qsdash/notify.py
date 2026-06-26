@@ -20,6 +20,11 @@ from qsdash.config import settings
 
 log = logging.getLogger(__name__)
 
+# httpx logs every request line at INFO — including the full Telegram API URL,
+# which embeds the bot token. Pin httpx to WARNING so the token never hits the
+# logs. (The token itself must still be rotated; it was already exposed.)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 _SEV_ICON = {"info": "i", "warn": "!", "crit": "!!"}
 
 
@@ -61,6 +66,25 @@ def _telegram(severity: str, title: str, body: str) -> dict:
 _Q: "queue.Queue[tuple[int, str, str, str]] | None" = None
 _worker_lock = threading.Lock()
 
+# Per-kind delivery rate-limit. The feed stale/recovered flap raised an alert on
+# every transition and spammed Telegram; collapse repeats of the same kind to one
+# delivery per cooldown. Crit alerts (kill/halt) are NEVER throttled.
+ALERT_DELIVERY_COOLDOWN_S = 300.0
+_last_delivery: dict[str, float] = {}
+_rl_lock = threading.Lock()
+
+
+def _delivery_allowed(kind: str, severity: str) -> bool:
+    if severity == "crit" or not kind:
+        return True
+    now = time.monotonic()
+    with _rl_lock:
+        last = _last_delivery.get(kind)
+        if last is not None and now - last < ALERT_DELIVERY_COOLDOWN_S:
+            return False
+        _last_delivery[kind] = now
+        return True
+
 
 def _ensure_worker() -> "queue.Queue":
     global _Q
@@ -72,10 +96,14 @@ def _ensure_worker() -> "queue.Queue":
         return _Q
 
 
-def enqueue_delivery(alert_id: int, severity: str, title: str, body: str) -> None:
-    """Queue an alert for off-thread delivery. No-op if no channel is
-    configured (nothing to deliver), so the worker only runs when it can."""
+def enqueue_delivery(alert_id: int, severity: str, title: str, body: str,
+                     kind: str = "") -> None:
+    """Queue an alert for off-thread delivery. No-op if no channel is configured,
+    or if a same-kind non-crit alert was delivered within the cooldown (the
+    feed-flap spam guard)."""
     if not channels_configured():
+        return
+    if not _delivery_allowed(kind, severity):
         return
     _ensure_worker().put((alert_id, severity, title, body))
 

@@ -60,3 +60,29 @@ def test_paper_broker_emits_trade_alerts(db):
     s.close()
     assert "trade_open" in titles and "LONG 10 SBIN-EQ" in titles["trade_open"]
     assert "trade_close" in titles and "+100" in titles["trade_close"]
+
+
+def test_feed_alert_delivery_is_rate_limited(monkeypatch):
+    """The feed stale/recovered flap raised an alert on every transition and
+    spammed Telegram. Repeats of the same non-crit kind now deliver once per
+    cooldown; crit alerts (kill/halt) are never throttled."""
+    from qsdash import notify
+
+    monkeypatch.setattr(notify.settings, "telegram_bot_token", "tok")
+    monkeypatch.setattr(notify.settings, "telegram_chat_id", "chat")
+    notify._last_delivery.clear()
+    sent: list = []
+
+    class _FakeQ:
+        def put(self, item):
+            sent.append(item)
+
+    monkeypatch.setattr(notify, "_ensure_worker", lambda: _FakeQ())
+
+    for _ in range(3):  # feed flap (warn): only the first gets delivered
+        notify.enqueue_delivery(1, "warn", "feed stale", "", kind="feed_stale")
+    assert len(sent) == 1, "non-crit flap must be rate-limited to one delivery"
+
+    for _ in range(3):  # crit is never throttled
+        notify.enqueue_delivery(2, "crit", "KILL", "", kind="kill")
+    assert len(sent) == 4, "crit alerts (kill/halt) must never be throttled"
