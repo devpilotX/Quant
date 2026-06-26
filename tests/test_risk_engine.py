@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from quantsys.config.schema import DrawdownConfig
-from quantsys.core.types import TargetPosition, Urgency
+from quantsys.core.types import TargetPosition
 from quantsys.risk.engine import RiskEngine, StopTracker
 from tests.conftest import gbm, make_hist, make_inst, make_state
 

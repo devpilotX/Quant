@@ -75,7 +75,7 @@ def test_meanrev_detects_pair_and_trades_dislocation():
     a, b = cointegrated_pair(220, beta=1.0, kappa=0.12, seed=31)
     strat = MeanRevStrategy(MR_CFG)
     # 1) scan on fair prices: should find the pair but stay flat near z~0
-    base_sigs = strat.generate_signals(_pair_state(a, b))
+    strat.generate_signals(_pair_state(a, b))
     assert strat._pairs, "cointegrated pair not detected"
     key = next(iter(strat._pairs))
     sigma = strat._pairs[key]["sigma_eq"]

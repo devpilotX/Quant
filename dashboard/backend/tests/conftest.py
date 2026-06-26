@@ -5,7 +5,6 @@ pinned BEFORE any qsdash import."""
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 _TMP = Path(__file__).resolve().parent / "_tmp"

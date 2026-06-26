@@ -16,7 +16,6 @@ from qsdash.models import (
     DecisionRow,
     EngineStatus,
     EquityPoint,
-    OrderRow,
     PositionRow,
     RuntimeConfig,
 )

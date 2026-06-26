@@ -75,7 +75,7 @@ def main() -> None:
                                    args.bars, bar_min, seed=args.seed))
         source = "synthetic"
 
-    print(f"# quantsys backtest study")
+    print("# quantsys backtest study")
     print(f"source={source} bars={len(bars)} symbols={len(syms)} "
           f"capital={args.capital:,.0f} bar_minutes={bar_min}")
     if is_synth:

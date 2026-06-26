@@ -38,7 +38,7 @@ from quantsys.portfolio.allocation import KellyAllocator, VolTargeter
 from quantsys.portfolio.sizing import SizingEngine
 from quantsys.portfolio.tiers import TierLadder
 from quantsys.regime.detector import RegimeDetector
-from quantsys.risk.engine import RiskEngine, positions_net
+from quantsys.risk.engine import RiskEngine
 from quantsys.risk.rules import RiskContext, apply_exposure_rules
 from quantsys.strategies.base import REGISTRY, OnlineEdgeStats, Strategy
 

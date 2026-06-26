@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import math
 import time
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -23,7 +22,6 @@ from quantsys.execution.broker import (
     Broker,
     BrokerError,
     BrokerOrder,
-    OrderStatus,
 )
 
 log = logging.getLogger("quantsys.oms")
@@ -143,7 +141,6 @@ class OMS:
 
         # immediate slices for single styles; schedulers place slice 0 now and
         # the rest on subsequent pump() calls
-        first = mo.slices[0]
         self._place_slice(mo, 0, inst, prices)
         if intent.style in (ExecutionStyle.MARKET_SINGLE,
                             ExecutionStyle.LIMIT_SINGLE,

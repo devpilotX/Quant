@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from quantsys.backtest.loop import BacktestResult, EquitySample, run_backtest
+from quantsys.backtest.loop import EquitySample, run_backtest
 from quantsys.backtest.metrics import compute_metrics
 from quantsys.backtest.simbroker import SimBroker
 from quantsys.config.schema import AppConfig

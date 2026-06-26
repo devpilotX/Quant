@@ -46,14 +46,14 @@ class TrendStrategy(Strategy):
             if not rs or len(rs["close"]) < need:
                 self._dir.pop(sym, None)
                 continue
-            c, h, l = rs["close"], rs["high"], rs["low"]
-            a = atr(h, l, c, cfg.atr_n)
+            c, h, lo = rs["close"], rs["high"], rs["low"]
+            a = atr(h, lo, c, cfg.atr_n)
             if not math.isfinite(a) or a <= 0:
                 self._dir.pop(sym, None)
                 continue
 
             mom = (ema(c, cfg.ema_fast)[-1] - ema(c, cfg.ema_slow)[-1]) / a
-            hh, ll = donchian(h, l, cfg.donchian)
+            hh, ll = donchian(h, lo, cfg.donchian)
             brk = 1.0 if c[-1] > hh else (-1.0 if c[-1] < ll else 0.0)
             w = cfg.breakout_weight
             score = (1.0 - w) * math.tanh(mom / cfg.momentum_scale) + w * brk

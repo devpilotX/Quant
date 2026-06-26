@@ -67,9 +67,9 @@ def ewma_vol_series(returns: np.ndarray, halflife: float) -> np.ndarray:
 
 
 def true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
-    h, l, c = (np.asarray(a, dtype=float) for a in (high, low, close))
+    h, lo, c = (np.asarray(a, dtype=float) for a in (high, low, close))
     prev_c = np.concatenate([[c[0]], c[:-1]])
-    return np.maximum.reduce([h - l, np.abs(h - prev_c), np.abs(l - prev_c)])
+    return np.maximum.reduce([h - lo, np.abs(h - prev_c), np.abs(lo - prev_c)])
 
 
 def atr_series(high: np.ndarray, low: np.ndarray, close: np.ndarray, n: int) -> np.ndarray:
@@ -92,10 +92,10 @@ def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, n: int) -> float:
 
 def donchian(high: np.ndarray, low: np.ndarray, n: int) -> tuple[float, float]:
     """(highest high, lowest low) over the n bars PRECEDING the current bar."""
-    h, l = np.asarray(high, dtype=float), np.asarray(low, dtype=float)
+    h, lo = np.asarray(high, dtype=float), np.asarray(low, dtype=float)
     if h.size < n + 1:
         return float("nan"), float("nan")
-    return float(h[-(n + 1) : -1].max()), float(l[-(n + 1) : -1].min())
+    return float(h[-(n + 1) : -1].max()), float(lo[-(n + 1) : -1].min())
 
 
 def ewma_cov(R: np.ndarray, halflife: float, shrink: float = 0.15) -> np.ndarray:

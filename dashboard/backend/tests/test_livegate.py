@@ -8,7 +8,6 @@ import os
 import pytest
 
 from qsdash.bridge.livegate import backtest_gate, live_gate
-from qsdash.db import now_ist
 from qsdash.models import BacktestRun
 
 

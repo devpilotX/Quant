@@ -10,10 +10,8 @@ naive fills. Proves the acceptance criteria that belong to the core:
 from __future__ import annotations
 
 import json
-from datetime import datetime
 
 import numpy as np
-import pytest
 
 from quantsys.core.market_state import MarketState
 from quantsys.core.types import Bar, InstrumentKind, Position

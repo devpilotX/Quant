@@ -26,19 +26,19 @@ def test_ewma_vol_matches_manual():
 def test_atr_wilder_reference():
     rng = np.random.default_rng(2)
     c = 100 + np.cumsum(rng.normal(0, 1, 300))
-    h, l = c + 1.0, c - 1.0
-    ours = F.atr_series(h, l, c, n=14)
-    tr = pd.Series(F.true_range(h, l, c))
+    h, lo = c + 1.0, c - 1.0
+    ours = F.atr_series(h, lo, c, n=14)
+    tr = pd.Series(F.true_range(h, lo, c))
     ref = tr.ewm(alpha=1 / 14, adjust=False).mean().to_numpy()
     # Wilder seeding differs early; the difference decays as (1-1/14)^t
     np.testing.assert_allclose(ours[250:], ref[250:], rtol=1e-4)
-    assert np.isfinite(F.atr(h, l, c, 14))
+    assert np.isfinite(F.atr(h, lo, c, 14))
 
 
 def test_donchian_excludes_current_bar():
     h = np.array([10, 11, 12, 13, 99.0])
-    l = np.array([9, 8, 7, 6, 1.0])
-    hh, ll = F.donchian(h, l, n=4)
+    lo = np.array([9, 8, 7, 6, 1.0])
+    hh, ll = F.donchian(h, lo, n=4)
     assert hh == 13.0 and ll == 6.0
 
 

@@ -63,7 +63,7 @@ class ExpiryStrategy(Strategy):
             rs = state.bars[sym].resampled(cfg.timeframe_bars)
             if not rs or len(rs["close"]) < need:
                 continue
-            c, h, l = rs["close"], rs["high"], rs["low"]
+            c, h, lo = rs["close"], rs["high"], rs["low"]
             win = c[-cfg.z_lookback:]
             mu, sd = float(np.mean(win)), float(np.std(win))
             if not (sd > 0 and math.isfinite(sd)):
@@ -71,7 +71,7 @@ class ExpiryStrategy(Strategy):
             z = (c[-1] - mu) / sd
             if abs(z) < cfg.z_entry:
                 continue
-            a = atr(h, l, c, cfg.atr_n)
+            a = atr(h, lo, c, cfg.atr_n)
             if not (math.isfinite(a) and a > 0):
                 continue
             out.append(

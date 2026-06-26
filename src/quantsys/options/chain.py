@@ -8,7 +8,6 @@ chain from the underlying for tests and dry runs (clearly not market data).
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Protocol

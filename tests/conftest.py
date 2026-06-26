@@ -11,7 +11,7 @@ import pytest
 
 from quantsys.config.schema import AppConfig
 from quantsys.core.market_state import MarketState
-from quantsys.core.types import Instrument, InstrumentKind, Position
+from quantsys.core.types import Instrument, InstrumentKind
 from quantsys.data.history import BarHistory
 
 BARS_PER_SESSION = 75  # 375 min / 5-min bars
@@ -37,10 +37,10 @@ def make_hist(closes, spread: float = 0.002, volume: float = 1e6,
     n = len(c)
     o = np.concatenate([[c[0]], c[:-1]])
     h = np.maximum(o, c) * (1 + spread / 2)
-    l = np.minimum(o, c) * (1 - spread / 2)
+    lo = np.minimum(o, c) * (1 - spread / 2)
     t = times or ts_seq(n)
     ts = np.array([x.timestamp() for x in t[:n]])
-    return BarHistory.from_arrays(ts, o, h, l, c, np.full(n, volume))
+    return BarHistory.from_arrays(ts, o, h, lo, c, np.full(n, volume))
 
 
 def make_inst(symbol: str, kind=InstrumentKind.EQUITY, lot_size=1, sector=None,

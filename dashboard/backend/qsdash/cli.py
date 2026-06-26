@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import secrets
 import sys
 from pathlib import Path
 
-from qsdash.db import SessionLocal, engine
+from qsdash.db import SessionLocal
 from qsdash.models import RuntimeConfig, User
 from qsdash.security import hash_password, new_totp_secret, totp_uri
 
@@ -70,7 +69,7 @@ def create_operator(username: str, password: str | None) -> None:
         db.close()
     print(f"operator '{username}' created.")
     print(f"TOTP secret: {secret}")
-    print(f"otpauth URI (scan in Google Authenticator / Aegis):")
+    print("otpauth URI (scan in Google Authenticator / Aegis):")
     print(f"  {totp_uri(secret, username)}")
 
 

@@ -33,7 +33,6 @@ from quantsys.core.types import (
     now_ist,
 )
 from quantsys.execution.broker import (
-    Broker,
     BrokerError,
     BrokerOrder,
     BrokerPosition,
@@ -95,7 +94,7 @@ class AngelOneBroker:
             return self._transport
         try:
             from SmartApi import SmartConnect  # type: ignore
-        except Exception as e:  # pragma: no cover - prod-only path
+        except Exception:  # pragma: no cover - prod-only path
             raise BrokerError(
                 "smartapi-python not installed; pip install smartapi-python", )
         self._transport = SmartConnect(api_key=self.api_key)

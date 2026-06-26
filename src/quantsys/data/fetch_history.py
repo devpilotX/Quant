@@ -63,8 +63,8 @@ def fetch_symbol(broker: AngelOneBroker, symbol: str, interval: str,
         w = csv.writer(fh)
         if is_new:
             w.writerow(["ts", "open", "high", "low", "close", "volume"])
-        for ts, o, h, l, c, v in rows:
-            w.writerow([ts.isoformat(), o, h, l, c, v])
+        for ts, o, h, lo, c, v in rows:
+            w.writerow([ts.isoformat(), o, h, lo, c, v])
     return len(rows)
 
 

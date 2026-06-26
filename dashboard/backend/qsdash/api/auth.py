@@ -28,7 +28,6 @@ from qsdash.deps import (
 )
 from qsdash.models import AuthSession, User
 from qsdash.security import (
-    hash_token,
     new_csrf_token,
     new_session_token,
     verify_password,

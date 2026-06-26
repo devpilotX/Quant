@@ -28,7 +28,7 @@ from quantsys.costs import CostModel
 
 from qsdash.audit import notify_alert
 from qsdash.bus import PgSyncPublisher, SyncPublisher
-from qsdash.db import SessionLocal, now_ist
+from qsdash.db import SessionLocal
 from qsdash.models import (
     FillRow,
     OrderRow,
@@ -195,7 +195,7 @@ class PaperBroker:
     # ----------------------------------------------------------- positions
     def _entry_rationale(self, decision: Decision, sym: str, strategy: str) -> dict:
         sig = next((s for s in decision.signals
-                    if s.symbol == sym or any(l.symbol == sym for l in s.resolved_legs())),
+                    if s.symbol == sym or any(leg.symbol == sym for leg in s.resolved_legs())),
                    None)
         sizing_audit = [
             {"stage": a.stage, "rule": a.rule, "detail": a.detail,

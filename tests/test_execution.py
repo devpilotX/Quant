@@ -17,7 +17,7 @@ from quantsys.core.types import (
     now_ist,
 )
 from quantsys.execution.angelone import AngelOneBroker
-from quantsys.execution.broker import BrokerError, BrokerOrder, OrderStatus
+from quantsys.execution.broker import BrokerError, BrokerOrder
 from quantsys.execution.oms import OMS
 from quantsys.execution.ratelimit import TokenBucket
 from quantsys.execution.reconcile import reconcile_positions
@@ -216,9 +216,9 @@ def test_historical_candles_chunks_and_normalises_to_naive_ist(broker):
         datetime(2021, 9, 1, 15, 30))
     assert len(broker._transport.candle_calls) == 3
     assert len(rows) == 3
-    ts, o, h, l, c, v = rows[0]
+    ts, o, h, lo, c, v = rows[0]
     assert ts.tzinfo is None            # +05:30 stripped to naive IST
-    assert (o, h, l, c, v) == (100.0, 101.0, 99.5, 100.5, 1234.0)
+    assert (o, h, lo, c, v) == (100.0, 101.0, 99.5, 100.5, 1234.0)
     assert rows == sorted(rows, key=lambda r: r[0])  # ascending
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Iterable, Iterator
+from typing import Iterable
 
 from quantsys.backtest.simbroker import ClosedTrade, SimBroker
 from quantsys.config.schema import AppConfig

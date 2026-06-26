@@ -82,25 +82,25 @@ class BarHistory:
         tail = self._buf[self._start + self._n - m * k : self._start + self._n]
         o = tail[:, 1].reshape(m, k)
         h = tail[:, 2].reshape(m, k)
-        l = tail[:, 3].reshape(m, k)
+        lo = tail[:, 3].reshape(m, k)
         c = tail[:, 4].reshape(m, k)
         v = tail[:, 5].reshape(m, k)
         return {
             "ts": tail[::k, 0].copy(),
             "open": o[:, 0].copy(),
             "high": h.max(axis=1),
-            "low": l.min(axis=1),
+            "low": lo.min(axis=1),
             "close": c[:, -1].copy(),
             "volume": v.sum(axis=1),
         }
 
     @classmethod
-    def from_arrays(cls, ts: np.ndarray, o, h, l, c, v=None, capacity: int | None = None) -> "BarHistory":
+    def from_arrays(cls, ts: np.ndarray, o, h, lo, c, v=None, capacity: int | None = None) -> "BarHistory":
         n = len(c)
         hist = cls(capacity or max(n + 16, 256))
         end = hist._start
         block = np.column_stack(
-            [ts, o, h, l, c, v if v is not None else np.zeros(n)]
+            [ts, o, h, lo, c, v if v is not None else np.zeros(n)]
         )
         hist._buf[end : end + n] = block
         hist._n = n

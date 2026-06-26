@@ -144,7 +144,6 @@ class VolOptionsStrategy(Strategy):
     # ---- debit vertical (buy premium in trend direction) --------------
     def _debit_spread(self, chain, expiry, underlying, trend, width, ratio):
         is_call = trend > 0
-        step = _infer_step(chain.for_expiry(expiry))
         near = chain.spot  # buy ATM
         bought = chain.strike_nearest(expiry, near, is_call=is_call)
         if bought is None:

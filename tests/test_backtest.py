@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from quantsys.backtest import run_backtest, synthetic_bars, walk_forward
-from quantsys.backtest.loop import run_backtest as run_bt
 from quantsys.backtest.metrics import (
     compute_metrics,
     deflated_sharpe,
@@ -151,7 +150,6 @@ def test_monte_carlo_resample_runs(cfg, bars):
 def test_simbroker_realizes_pnl_on_close(cfg):
     from quantsys.core.types import Decision, ExecutionStyle, OrderIntent, RegimeState, Urgency
 
-    eng_inst = {u.symbol: None for u in cfg.universe}
     sym = cfg.universe[0].symbol
     from quantsys.engine.decision import DecisionEngine
     eng = DecisionEngine(cfg)
