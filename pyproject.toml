@@ -14,8 +14,20 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.4"]
-# Execution layer (next phase) — kept out of core so the brain has zero broker deps
-broker = ["smartapi-python", "websocket-client", "pyotp", "logzero"]
+# Execution layer (next phase) — kept out of core so the brain has zero broker deps.
+# PINNED 2026-06-26: smartapi-python 1.5.5's SmartWebSocketV2 binds 1-arg socket
+# callbacks (_on_close(self, wsapp)). websocket-client >=1.0 invokes on_close with
+# 3 args -> "_on_close() takes 2 positional arguments but 4 were given" -> the live
+# feed flap (no-ticks/reconnect storm). 0.57.0 is the last line that calls
+# on_close(ws) for a non-3-arg handler. Keep these four locked together; re-run the
+# paper-feed tick check if you bump ANY of them. smartapi-python itself does not
+# declare websocket-client, which is why an unpinned build drifted to 1.9.0.
+broker = [
+    "smartapi-python==1.5.5",
+    "websocket-client==0.57.0",
+    "pyotp==2.10.0",
+    "logzero==1.7.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
