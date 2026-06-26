@@ -39,6 +39,8 @@ export default function OverviewPage() {
     | null
     | undefined;
 
+  const paused = (ov?.engine as { status?: string } | undefined)?.status === "paused";
+
   return (
     <div className="space-y-3">
       {modal}
@@ -134,6 +136,31 @@ export default function OverviewPage() {
                 }
               >
                 Re-arm
+              </UIButton>
+              <UIButton
+                tone={paused ? "primary" : undefined}
+                onClick={() =>
+                  guard({
+                    title: paused ? "Resume the engine" : "Pause the engine",
+                    summary: paused ? (
+                      <span>Resumes the decision loop — the engine starts taking decisions again next bar.</span>
+                    ) : (
+                      <span>
+                        Pauses the decision loop: the engine stops making new
+                        decisions but <b>does NOT flatten</b> (use KILL to flatten).
+                        Open positions are held; the pause survives a restart until
+                        you resume.
+                      </span>
+                    ),
+                    run: () => apiPost("/control/engine", {
+                      action: paused ? "resume" : "pause",
+                      reason: "operator from overview",
+                    }),
+                    onDone: () => qc.invalidateQueries(),
+                  })
+                }
+              >
+                {paused ? "▶ Resume" : "⏸ Pause"}
               </UIButton>
               <Link href="/settings"><UIButton>Mode & capital →</UIButton></Link>
             </div>
