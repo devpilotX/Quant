@@ -1,0 +1,9 @@
+[Unit]
+Description=quantsys: daily ops self-check (health, heartbeat age, restarts, disk)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/quant/deploy
+ExecStart=/usr/bin/bash /opt/quant/deploy/scripts/selfcheck.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily pre-open engine recycle (08:50 IST, trading days)
+
+[Timer]
+# 03:20 UTC = 08:50 IST, 25 min before the NSE open. Persistent=false on
+# purpose: a missed pre-open recycle must NOT fire mid-session later.
+OnCalendar=Mon..Fri 03:20:00 UTC
+Persistent=false
+
+[Install]
+WantedBy=timers.target

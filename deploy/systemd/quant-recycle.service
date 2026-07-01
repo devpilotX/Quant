@@ -1,0 +1,10 @@
+[Unit]
+Description=quantsys: pre-open engine recycle (fresh broker session, instrument master, near-month futures roll, clean memory baseline)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/quant/deploy
+ExecStart=/usr/bin/docker compose --profile paper restart engine-paper
+TimeoutStartSec=600

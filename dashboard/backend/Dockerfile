@@ -11,7 +11,9 @@ COPY config /app/engine/config
 RUN pip install "/app/engine[broker]"
 
 COPY dashboard/backend /app/backend
-RUN pip install /app/backend
+# pyarrow: parquet IO for the research monitors (down-shock daily tracker),
+# baked in so the timer job does not pip-install on every run
+RUN pip install /app/backend pyarrow
 
 # default: API. compose overrides command for ws-worker / engine.
 EXPOSE 8000

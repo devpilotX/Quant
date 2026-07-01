@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily quantsys self-check (09:55 IST, after the open)
+
+[Timer]
+# 04:25 UTC = 09:55 IST — 40 min into the session, so an in-session heartbeat
+# is expected on trading days; on holidays the engine still heartbeats "idle".
+OnCalendar=*-*-* 04:25:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

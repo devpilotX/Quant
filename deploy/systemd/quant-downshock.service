@@ -1,0 +1,8 @@
+[Unit]
+Description=Pillar-4 down-shock forward paper-tracker (daily, zero-risk research log)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/quant/deploy/_audit/downshock/run.sh

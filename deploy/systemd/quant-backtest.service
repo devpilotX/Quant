@@ -1,0 +1,10 @@
+[Unit]
+Description=quantsys: refresh NSE history + walk-forward backtest (persist to dashboard)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/quant/deploy
+ExecStart=/usr/bin/bash /opt/quant/deploy/scripts/backtest_refresh.sh FIFTEEN_MINUTE 2017-01-01 --quick --max-bars 30000
+TimeoutStartSec=10800
