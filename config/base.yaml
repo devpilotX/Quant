@@ -2,11 +2,25 @@
 # Every value here overrides the typed defaults in quantsys/config/schema.py.
 # Tier ladder, risk limits, costs: see schema.py for the full documented set.
 #
-# NOTE ON MARKET DATA CONSTANTS (lot sizes, ADV, margins): these are sample
-# values verified June 2026 (NIFTY lot 65, BANKNIFTY lot 30 per NSE Jan-2026
-# revision). In live/paper runs the execution layer MUST refresh lot sizes,
+# 2026-07-02 FORWARD-STUDY UNLOCK (paper only — see docs/FORWARD_STUDY.md):
+#   * universe broadened to 48 liquid large-caps + 2 index futures so the
+#     Pillar-2 factor sleeve has real breadth (TATAMOTORS became TMPV/TMCV
+#     after the 2025 demerger — the old symbol is gone from the master);
+#   * factor + expiry sleeves enabled for the pre-registered forward paper
+#     study (code defaults stay False; live arming stays gated by
+#     QS_LIVE_ARMED + rotated credentials, unchanged);
+#   * min-lot promotion ON so index futures can trade their 1-lot market
+#     minimum inside an explicit risk ceiling;
+#   * the paper float itself is operational state (durable runtime_config key
+#     `paper_capital`; ₹15cr for the study so tier T6 unlocks 40 instruments
+#     and all 4 strategy slots) — deliberately NOT a value in this file.
+#
+# NOTE ON MARKET DATA CONSTANTS (lot sizes, ADV, margins): sample values
+# verified June 2026 (NIFTY lot 65, BANKNIFTY lot 30 per NSE Jan-2026
+# revision). In live/paper runs the execution layer refreshes lot sizes,
 # tokens and ADV daily from the Angel One instrument master; these entries are
-# warm-start fallbacks, not authority.
+# warm-start fallbacks, not authority. ADV for the 2026-07 additions = 90-day
+# mean daily share volume from the local NSE bhavcopy panel (to 2026-06-19).
 
 engine:
   decision_bar_minutes: 15
@@ -14,6 +28,9 @@ engine:
 
 sizing:
   base_risk_frac: 0.006          # 0.6% of equity at risk per unit trade
+  max_signals_per_strategy: 40   # factor emits a 24-name basket; don't truncate it
+  min_lot_promotion: true        # index-futures unlock (single-leg, risk-capped)
+  promotion_max_risk_frac: 0.005
 
 vol_target:
   annual_vol_target: 0.13
@@ -28,6 +45,15 @@ drawdown:
 costs:
   brokerage_flat: 20.0
 
+# Paper forward-study sleeves. Code defaults keep both False; this file is the
+# single switch that turns them on for the deployed paper engine.
+factor:
+  enabled: true
+  min_universe: 34               # T6 view is 40 names; margin for history gaps
+  top_k: 12                      # 12 long / 12 short, dollar-neutral
+expiry:
+  enabled: true
+
 universe:
   - {symbol: NIFTY,        kind: INDEX,  exchange: NSE, sector: index}
   - {symbol: NIFTY-FUT,    kind: FUTURE, exchange: NFO, sector: index,  lot_size: 65, margin_rate: 0.125, adv: 250000}
@@ -37,6 +63,7 @@ universe:
   - {symbol: KOTAKBANK,    kind: EQUITY, exchange: NSE, sector: banks,  adv: 5000000}
   - {symbol: AXISBANK,     kind: EQUITY, exchange: NSE, sector: banks,  adv: 9000000}
   - {symbol: SBIN,         kind: EQUITY, exchange: NSE, sector: banks,  adv: 25000000}
+  - {symbol: INDUSINDBK,   kind: EQUITY, exchange: NSE, sector: banks,  adv: 2700000}
   - {symbol: TCS,          kind: EQUITY, exchange: NSE, sector: it,     adv: 3000000}
   - {symbol: INFY,         kind: EQUITY, exchange: NSE, sector: it,     adv: 7000000}
   - {symbol: HCLTECH,      kind: EQUITY, exchange: NSE, sector: it,     adv: 3500000}
@@ -46,12 +73,36 @@ universe:
   - {symbol: ONGC,         kind: EQUITY, exchange: NSE, sector: energy, adv: 12000000}
   - {symbol: NTPC,         kind: EQUITY, exchange: NSE, sector: energy, adv: 14000000}
   - {symbol: POWERGRID,    kind: EQUITY, exchange: NSE, sector: energy, adv: 12000000}
+  - {symbol: COALINDIA,    kind: EQUITY, exchange: NSE, sector: energy, adv: 15700000}
+  - {symbol: BPCL,         kind: EQUITY, exchange: NSE, sector: energy, adv: 12500000}
   - {symbol: MARUTI,       kind: EQUITY, exchange: NSE, sector: auto,   adv: 700000}
-  - {symbol: TATAMOTORS,   kind: EQUITY, exchange: NSE, sector: auto,   adv: 25000000}
+  - {symbol: TMPV,         kind: EQUITY, exchange: NSE, sector: auto,   adv: 11900000}
+  - {symbol: TMCV,         kind: EQUITY, exchange: NSE, sector: auto,   adv: 12100000}
   - {symbol: BAJAJ-AUTO,   kind: EQUITY, exchange: NSE, sector: auto,   adv: 600000}
+  - {symbol: "M&M",        kind: EQUITY, exchange: NSE, sector: auto,   adv: 3240000}
+  - {symbol: EICHERMOT,    kind: EQUITY, exchange: NSE, sector: auto,   adv: 580000}
+  - {symbol: HEROMOTOCO,   kind: EQUITY, exchange: NSE, sector: auto,   adv: 610000}
   - {symbol: TATASTEEL,    kind: EQUITY, exchange: NSE, sector: metals, adv: 35000000}
   - {symbol: JSWSTEEL,     kind: EQUITY, exchange: NSE, sector: metals, adv: 4000000}
   - {symbol: HINDALCO,     kind: EQUITY, exchange: NSE, sector: metals, adv: 8000000}
+  - {symbol: VEDL,         kind: EQUITY, exchange: NSE, sector: metals, adv: 28000000}
   - {symbol: SUNPHARMA,    kind: EQUITY, exchange: NSE, sector: pharma, adv: 4000000}
   - {symbol: CIPLA,        kind: EQUITY, exchange: NSE, sector: pharma, adv: 3500000}
   - {symbol: DRREDDY,      kind: EQUITY, exchange: NSE, sector: pharma, adv: 2500000}
+  - {symbol: DIVISLAB,     kind: EQUITY, exchange: NSE, sector: pharma, adv: 350000}
+  - {symbol: APOLLOHOSP,   kind: EQUITY, exchange: NSE, sector: health, adv: 440000}
+  - {symbol: LT,           kind: EQUITY, exchange: NSE, sector: infra,  adv: 2920000}
+  - {symbol: ADANIPORTS,   kind: EQUITY, exchange: NSE, sector: infra,  adv: 3130000}
+  - {symbol: ADANIENT,     kind: EQUITY, exchange: NSE, sector: infra,  adv: 2820000}
+  - {symbol: BHARTIARTL,   kind: EQUITY, exchange: NSE, sector: telecom, adv: 9980000}
+  - {symbol: ITC,          kind: EQUITY, exchange: NSE, sector: fmcg,   adv: 19520000}
+  - {symbol: HINDUNILVR,   kind: EQUITY, exchange: NSE, sector: fmcg,   adv: 2160000}
+  - {symbol: NESTLEIND,    kind: EQUITY, exchange: NSE, sector: fmcg,   adv: 2160000}
+  - {symbol: ASIANPAINT,   kind: EQUITY, exchange: NSE, sector: consumer, adv: 1350000}
+  - {symbol: TITAN,        kind: EQUITY, exchange: NSE, sector: consumer, adv: 1270000}
+  - {symbol: ULTRACEMCO,   kind: EQUITY, exchange: NSE, sector: cement, adv: 380000}
+  - {symbol: GRASIM,       kind: EQUITY, exchange: NSE, sector: cement, adv: 970000}
+  - {symbol: BAJFINANCE,   kind: EQUITY, exchange: NSE, sector: nbfc,   adv: 10060000}
+  - {symbol: BAJAJFINSV,   kind: EQUITY, exchange: NSE, sector: nbfc,   adv: 1230000}
+  - {symbol: JIOFIN,       kind: EQUITY, exchange: NSE, sector: nbfc,   adv: 18880000}
+  - {symbol: DLF,          kind: EQUITY, exchange: NSE, sector: realty, adv: 4520000}
