@@ -122,7 +122,6 @@ def check_db() -> None:
         from sqlalchemy import inspect, text  # noqa
 
         from qsdash.db import engine
-        from qsdash.models import User
 
         with engine.connect() as c:
             insp = inspect(engine)

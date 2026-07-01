@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import httpx
@@ -135,7 +134,6 @@ def main() -> int:
 
 def _live_events(args) -> tuple[bool, str]:
     import json
-    import threading
 
     import websockets
     import asyncio

@@ -48,3 +48,6 @@ deploy/docker-compose.override.yml
 
 # backend test SQLite DB (generated per session by conftest)
 dashboard/backend/tests/_tmp/
+
+# IDE artifacts
+.kiro/

@@ -1,9 +1,31 @@
 # quantsys
 
-Auto-adaptive systematic trading system for Indian markets (NSE/BSE cash + F&O),
-targeting execution via Angel One SmartAPI. **This repository currently contains
-the complete, tested CORE — the decision brain.** Execution, backtest harness and
-runners are the next phases (see Roadmap).
+Auto-adaptive systematic trading system for Indian markets (NSE/BSE cash + F&O)
+via Angel One SmartAPI. **Complete system: decision brain + event-driven
+backtester + execution layer + dashboard control plane + standalone research
+kit**, deployed in paper mode on a VPS.
+
+## Status (2026-07-02) — Forward Study 1 running on the paper VPS
+
+- **Deployed**: https://quant.devpilotx.com — paper engine on live Angel One
+  data. `QS_LIVE_ARMED=0`: real money stays OFF, and the 2026-06-11 credential
+  leak means rotation is a hard precondition for ever arming live (GOLIVE §0).
+- **Research verdict unchanged**: the 2017–26 alpha search is CLOSED — nothing
+  cleared the deployment gate (`docs/RESEARCH_CLOSEOUT.md`). What runs now is
+  the closeout's one sanctioned continuation: a **pre-registered, forward-only
+  paper study** (`docs/FORWARD_STUDY.md`) exercising all four pillars at tier
+  T6 (₹15cr paper float): trend + cointegration pairs (P1/P3), **12L/12S
+  market-neutral factor momentum on a self-seeded daily panel** (P2), expiry
+  fade (P1), and the zero-risk down-shock tracker (P4, daily timer).
+- **Universe**: 48 liquid large-caps + NIFTY/BANKNIFTY near-month futures
+  (TATAMOTORS → TMPV/TMCV after the 2025 demerger). Index futures trade via
+  **risk-capped min-lot promotion** (a 1-lot minimum ticket is allowed iff it
+  risks ≤ 0.5% of equity).
+- **Ops automation** (`deploy/systemd/`): pre-open engine recycle 08:50 IST,
+  daily self-check 09:55 IST (GREEN/RED log + loud unit failure), down-shock
+  tracker 20:30 IST, weekly backtest refresh; the websocket feed **parks
+  outside session hours** (no overnight reconnect churn; pinned
+  `smartapi-python==1.5.5` + `websocket-client==0.59.0`).
 
 ```
 MarketState (bars, equity, positions)            <- built identically by backtest & live
@@ -175,7 +197,8 @@ events to the browser in real time.
   (adapter + `QS_LIVE_ARMED` + passing real backtest). See `docs/GOLIVE.md`,
   `docs/DECISIONS.md` (#17–26), and `deploy/scripts/preflight.py`.
 
-Test counts: **107 engine tests**, **39 dashboard backend tests**, all green.
+Test counts: **176 engine tests**, **53 dashboard backend tests** (1 env-skip),
+all green (2026-07-02).
 
 ## Research tooling (standalone) — `quantsys/research/`
 
@@ -213,18 +236,13 @@ Network access is confined to the fetchers' download helpers; the parsers, facto
 and validators are pure and unit-tested (`tests/test_research.py`,
 `tests/test_combine.py`) with no network. Data caches under `data_cache/` (gitignored).
 
-## Roadmap (next phases, in order)
+## Roadmap (what actually remains)
 
-1. **Execution layer**: SmartAPI adapter behind a `Broker` interface, WebSocket
-   2.0 tick streaming -> bar aggregation, OMS with token-bucket rate limiting
-   (~10 orders/s, 3 hist req/s), order lifecycle + MPP handling, idempotent
-   client order IDs, reconciliation loop wired to `RiskEngine.reconcile`.
-2. **Backtester**: event loop that feeds `MarketState` into THIS engine
-   unchanged; fills with the cost model; walk-forward harness + validation
-   report (deflated Sharpe, regime-segmented stats, Monte Carlo on trade order).
-3. **Paper runner** against live data; then guarded live runner (VPS deploy).
-4. **Options/vol strategy** (defined-risk spreads, IV-vs-RV) as a registry
-   drop-in; needs option-chain data infra first.
-5. **Monitoring**: structured JSONL decision/audit logs (the audit trail is
-   already produced), Telegram alerts, dashboard. SEBI algo registration via
-   broker before any live order.
+1. **Rotate the Angel One credentials** (leaked 2026-06-11; still the hard
+   blocker for any live arming) and fill Telegram alert creds in `deploy/.env`.
+2. **Forward Study 1 first read: 2027-01-02** (`docs/FORWARD_STUDY.md`) —
+   observational only; the livegate criteria stand unchanged.
+3. **voloptions sleeve** stays disabled until a live option-chain feed +
+   OptionUniverseManager exist.
+4. Off-VPS backup replication (`deploy/backups/` rsync target) + a restore
+   drill; SEBI algo registration via the broker before any real order.
