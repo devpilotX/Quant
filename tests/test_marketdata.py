@@ -161,6 +161,7 @@ def test_feed_supervisor_reconnects_and_reauth_is_rate_limited():
 
     feed = _make_feed(reauth=reauth, ws_factory=factory,
                       is_open=lambda: False,  # keep the watchdog out of it
+                      active_fn=lambda: True,  # ...but keep the supervisor live
                       initial_backoff=0.01, max_backoff=0.02)  # default reauth_min_interval=300s
     feed.start()
     deadline = time.monotonic() + 3.0
@@ -189,6 +190,7 @@ def test_feed_reauth_recurs_after_interval():
         return {}
 
     feed = _make_feed(reauth=reauth, ws_factory=factory, is_open=lambda: False,
+                      active_fn=lambda: True,   # watchdog quiet, supervisor live
                       initial_backoff=0.005, max_backoff=0.01, reauth_min_interval=0.1)
     feed.start()
     time.sleep(0.6)
@@ -228,7 +230,10 @@ def test_feed_watchdog_leaves_socket_alone_when_market_closed():
         built.append(s)
         return s
 
+    # active_fn=True: the WATCHDOG's market-closed behaviour is under test here;
+    # supervisor parking outside the window has its own tests (test_feed_park).
     feed = _make_feed(ws_factory=factory, is_open=lambda: False,  # market closed
+                      active_fn=lambda: True,
                       stale_seconds=0.05, watchdog_interval=0.02,
                       initial_backoff=0.01, max_backoff=0.02)
     feed.start()

@@ -126,9 +126,11 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
                  reauth: Callable[[], dict] | None = None,
                  ws_factory: Callable[..., object] | None = None,
                  is_open: Callable[[], bool] | None = None,
+                 active_fn: Callable[[], bool] | None = None,
                  stale_seconds: float = 90.0, initial_backoff: float = 1.0,
                  max_backoff: float = 60.0, watchdog_interval: float = 15.0,
-                 reauth_min_interval: float = 300.0):
+                 reauth_min_interval: float = 300.0,
+                 park_poll_s: float = 60.0, preopen_lead_min: float = 10.0):
         self.auth_token = auth_token
         self.api_key = api_key
         self.client_code = client_code
@@ -139,6 +141,16 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
         self._reauth = reauth
         self._ws_factory = ws_factory or _default_ws_factory
         self._is_open = is_open or (lambda: is_session_open(now_ist()))
+        # Feed ACTIVITY window: session hours plus a pre-open lead so the socket
+        # is already live for the first tick. Outside it the supervisor PARKS
+        # instead of reconnect-churning against a broker that drops idle sockets
+        # overnight — that churn fed the 2026-06 SSL-race leak and a nightly
+        # broken-pipe/restart cycle.
+        self._active_fn = active_fn or (lambda: (
+            self._is_open()
+            or is_session_open(now_ist() + timedelta(minutes=preopen_lead_min))))
+        self._park_poll_s = park_poll_s
+        self._parked = False
         self._stale_seconds = stale_seconds
         self._initial_backoff = initial_backoff
         self._max_backoff = max_backoff
@@ -169,6 +181,11 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
         with self._lock:
             last = self._last_tick
         return None if last == 0.0 else max(0.0, time.monotonic() - last)
+
+    @property
+    def parked(self) -> bool:
+        """True while the supervisor is idling outside the session window."""
+        return self._parked
 
     # ------------------------------------------------------------- callbacks
     def _bind_callbacks(self, sws) -> None:
@@ -233,6 +250,23 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
     def _supervise(self) -> None:
         backoff = self._initial_backoff
         while not self._stop.is_set():
+            if not self._active_fn():
+                if not self._parked:
+                    self._parked = True
+                    log.info("feed: market closed — parked (no reconnect churn "
+                             "until the pre-open window)")
+                if self._stop.wait(self._park_poll_s):
+                    break
+                continue
+            if self._parked:
+                self._parked = False
+                # a park usually spans the broker's daily token reset: refresh
+                # eagerly so the first connect doesn't burn a failure on it
+                now = time.monotonic()
+                if now - self._last_reauth >= self._reauth_min_interval:
+                    self._do_reauth()
+                    self._last_reauth = now
+                log.info("feed: pre-open window — resuming socket")
             with self._lock:
                 self._ticks_this_conn = 0  # only a tick-delivering socket is healthy
             try:
@@ -265,6 +299,8 @@ class AngelWebSocketFeed:  # pragma: no cover - network path
             # hammered the broker and fed the runaway. The day's feed token stays
             # valid, so refresh at most every reauth_min_interval — the first
             # reconnect still refreshes, so a stale Monday token recovers promptly.
+            if not self._active_fn():
+                continue  # session closed while connected: park, no reauth/backoff
             now = time.monotonic()
             if now - self._last_reauth >= self._reauth_min_interval:
                 self._do_reauth()
