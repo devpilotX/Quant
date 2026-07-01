@@ -122,6 +122,53 @@ def test_cost_gate_skips_held_positions():
     assert targets and targets[0].qty == 300
 
 
+def test_min_lot_promotion_unlocks_single_future_lot():
+    """Index-futures unlock: a FUTURE whose risk budget rounds below one lot
+    takes exactly ONE lot when promotion is on and the lot's rupee risk fits
+    promotion_max_risk_frac of equity. (Promotion off => stays untraded, see
+    test_lot_rounding_floors_and_drops_zero.)"""
+    state = _state_with({"F": 100.0}, equity=50_000_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 65})
+    sizer = SizingEngine(SizingConfig(min_lot_promotion=True),
+                         CostModel(CostConfig()), 0.0)
+    for direction, want in ((1.0, 65), (-1.0, -65)):
+        sig = Signal("s", "F", direction, stop_distance=10.0)
+        book = sizer.build_raw([sig], {"s": 1.0}, 500.0, state, [])  # 50 raw < 1 lot
+        audits = []
+        targets = sizer.finalize(book, _tier(), state, {}, {}, audits)
+        assert [t.qty for t in targets] == [want]       # lot risk 650 <= 0.5% of 5e7
+        assert any(a.rule == "min_lot_promotion" for a in audits)
+
+
+def test_min_lot_promotion_respects_equity_risk_cap():
+    """The promoted lot must NEVER breach the risk ceiling: at a small float
+    one lot is genuinely too big and the honest answer stays no-trade."""
+    state = _state_with({"F": 100.0}, equity=100_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 65})
+    sizer = SizingEngine(SizingConfig(min_lot_promotion=True),
+                         CostModel(CostConfig()), 0.0)
+    sig = Signal("s", "F", 1.0, stop_distance=10.0)     # lot risk 650 > 0.5% of 1e5
+    book = sizer.build_raw([sig], {"s": 1.0}, 50.0, state, [])
+    audits = []
+    assert sizer.finalize(book, _tier(), state, {}, {}, audits) == []
+    assert any(a.rule == "rounds_to_zero" for a in audits)
+    assert not any(a.rule == "min_lot_promotion" for a in audits)
+
+
+def test_min_lot_promotion_never_touches_spread_legs():
+    """Promoting one leg of a pair would corrupt the hedge ratio — multi-leg
+    groups are excluded from promotion and still drop whole."""
+    state = _state_with({"A": 100.0, "B": 50.0}, equity=50_000_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 500})
+    sizer = SizingEngine(SizingConfig(min_lot_promotion=True),
+                         CostModel(CostConfig()), 0.0)
+    sig = Signal("mr", "A", 1.0, 5.0, legs=(LegSpec("A", 1.0), LegSpec("B", -0.01)))
+    book = sizer.build_raw([sig], {"mr": 1.0}, 5000.0, state, [])
+    audits = []
+    assert sizer.finalize(book, _tier(), state, {}, {}, audits) == []
+    assert not any(a.rule == "min_lot_promotion" for a in audits)
+
+
 def test_bad_price_or_stop_skipped_with_audit():
     state = _state_with({"X": 100.0})
     audits = []

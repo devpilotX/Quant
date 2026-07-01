@@ -120,8 +120,13 @@ class SizingEngine:
             rounded: list[tuple[Component, int]] = []
             ok = True
             for c in comps:
-                lot = max(state.instruments[c.symbol].lot_size, 1)
+                inst = state.instruments[c.symbol]
+                lot = max(inst.lot_size, 1)
                 q = int(abs(c.qty) // lot) * lot * (1 if c.qty > 0 else -1)
+                if q == 0 and self._promote_min_lot(c, comps, inst, state):
+                    q = lot if c.qty > 0 else -lot
+                    audits.append(AuditEvent("sizing", "min_lot_promotion", gid,
+                                             symbol=c.symbol, before=c.qty, after=float(q)))
                 if q == 0:
                     audits.append(AuditEvent("sizing", "rounds_to_zero", gid, symbol=c.symbol,
                                              before=c.qty, after=0.0))
@@ -161,6 +166,21 @@ class SizingEngine:
                     stop_distance=c.stop_distance, ref_price=c.ref_price, urgency=Urgency.NORMAL,
                 ))
         return out
+
+    def _promote_min_lot(self, c: Component, comps: list[Component],
+                         inst, state: MarketState) -> bool:
+        """Index-futures unlock: one contract is the market's minimum ticket, so
+        a lot-sized FUTURE whose risk budget rounds below one lot may take
+        exactly ONE lot iff that lot's rupee risk stays within
+        promotion_max_risk_frac of equity. Single-leg groups only — promoting
+        one leg of a spread would corrupt the hedge ratio."""
+        if not self.cfg.min_lot_promotion or len(comps) != 1:
+            return False
+        if inst.kind != InstrumentKind.FUTURE or inst.lot_size <= 1:
+            return False
+        lot_risk = inst.lot_size * c.stop_distance * inst.point_value
+        return (state.equity > 0
+                and lot_risk <= self.cfg.promotion_max_risk_frac * state.equity)
 
     @staticmethod
     def _is_new_trade(rounded: list[tuple[Component, int]], positions: dict[str, Position]) -> bool:

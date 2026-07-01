@@ -40,6 +40,12 @@ class SizingConfig(BaseModel):
     conviction_weighting: bool = True
     max_signals_per_strategy: int = 12
     enforce_cost_gate: bool = True   # paper exploration sets this False (see EngineConfig)
+    # Min-lot promotion (index-futures unlock): a single-leg FUTURE group whose
+    # risk budget rounds below one lot may be promoted to exactly ONE lot iff
+    # that lot's rupee risk stays within promotion_max_risk_frac of equity.
+    # Off by default: at a small float the honest answer stays "too big to trade".
+    min_lot_promotion: bool = False
+    promotion_max_risk_frac: float = Field(0.005, gt=0, le=0.02)
 
 
 class KellyConfig(BaseModel):
