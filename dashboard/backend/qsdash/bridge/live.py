@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 
 from quantsys.config import load_config
 from quantsys.core.market_state import MarketState
-from quantsys.core.types import Bar, Position, is_session_open
+from quantsys.core.types import Bar, InstrumentKind, Position, is_session_open
 from quantsys.data.history import BarHistory
 from quantsys.engine.decision import DecisionEngine
 from quantsys.execution.angelone import AngelOneBroker
@@ -412,6 +412,34 @@ class LiveRunner:
         log.info("warmup: replayed %d bars across %d instruments (engine ready)",
                  n, len(per_sym))
 
+    def _seed_factor_daily(self) -> None:
+        """Give the factor sleeve its daily panel — it cannot derive 13 months
+        of history from live intraday bars, so 'enabled' without this would
+        silently mean 'no-op for a year'. EQUITY names only; best-effort per
+        symbol (a missing name just drops out of the breadth count)."""
+        fac = next((s for s in self.engine.strategies
+                    if s.name == "factor" and hasattr(s, "seed_daily")), None)
+        if fac is None:
+            return
+        f = self.cfg.factor
+        days = int((max(f.lookback_bars + f.skip_bars, f.vol_lookback)
+                    + f.atr_n + 15) * 1.6)
+        end = now_ist()
+        start = end - timedelta(days=days)
+        n = 0
+        for sym, inst in self.instruments.items():
+            if inst.kind != InstrumentKind.EQUITY:
+                continue
+            try:
+                rows = self.broker_adapter.historical_candles(sym, "ONE_DAY", start, end)
+            except Exception as e:
+                log.warning("factor seed %s failed: %s", sym, e)
+                continue
+            if rows:
+                fac.seed_daily(sym, rows)
+                n += 1
+        log.info("factor: daily panel seeded for %d equities", n)
+
     def _seed_equity_snapshot(self) -> None:
         """Write one equity point at startup so the dashboard shows starting
         capital straight away instead of 'no data' until the first bar
@@ -436,6 +464,10 @@ class LiveRunner:
             self._warmup_from_history()
         except Exception as e:  # best-effort — a cold start is still functional
             log.warning("warmup failed (engine starts cold): %s", e)
+        try:
+            self._seed_factor_daily()
+        except Exception as e:  # factor then stays a breadth-gated no-op
+            log.warning("factor daily seed failed: %s", e)
         self._seed_equity_snapshot()
         notify_alert(self.publisher, severity="info", kind="engine_start",
                      title=f"Engine started ({self.mode})",
