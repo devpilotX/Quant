@@ -83,6 +83,13 @@ def _ensure_tokens(broker: AngelOneBroker, cfg) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # The SmartAPI SDK issues blocking HTTP calls with NO timeout of its own; a
+    # half-open connection (e.g. the broker's weekend maintenance window) hangs
+    # generateSession/getCandleData forever — the 2026-06-28 quant-backtest
+    # failure was exactly this (3h wall, <1s CPU, killed by systemd). A global
+    # socket default turns any silent hang into a retryable error.
+    import socket
+    socket.setdefaulttimeout(60)
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config/base.yaml")
     ap.add_argument("--out", default="data/nse")

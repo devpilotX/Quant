@@ -2,7 +2,11 @@
 Description=Weekly quantsys history refresh + backtest
 
 [Timer]
-OnCalendar=Sun *-*-* 02:30:00
+# Saturday late morning IST: market closed, and clear of the broker's
+# overnight/weekend maintenance window that hung the 2026-06-28 run (the SDK
+# has no HTTP timeouts of its own; fetch_history now also sets a socket
+# default so a silent hang fails fast instead of eating the 3h unit timeout).
+OnCalendar=Sat *-*-* 11:00:00
 Persistent=true
 
 [Install]
