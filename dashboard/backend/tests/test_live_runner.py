@@ -147,7 +147,9 @@ def test_durable_paper_capital_applied_on_startup(db):
     from qsdash.db import SessionLocal
     from qsdash.models import RuntimeConfig
 
-    db.query(RuntimeConfig).filter(RuntimeConfig.key == "paper_capital").delete()
+    db.query(RuntimeConfig).filter(RuntimeConfig.key.in_(
+        ("paper_capital", "paper_capital_applied", "paper_broker_state"))
+    ).delete(synchronize_session=False)
     db.add(RuntimeConfig(key="paper_capital", value={"v": 2_500_000.0}, updated_by="op"))
     db.commit()
 
@@ -169,7 +171,9 @@ def test_durable_paper_capital_applied_on_startup(db):
     assert r.broker.cash == 1_000_000.0       # --capital bootstrap default
     r._load_runtime_config()
     assert r.broker.cash == 2_500_000.0       # durable operator value wins
-    db.query(RuntimeConfig).filter(RuntimeConfig.key == "paper_capital").delete()
+    db.query(RuntimeConfig).filter(RuntimeConfig.key.in_(
+        ("paper_capital", "paper_capital_applied", "paper_broker_state"))
+    ).delete(synchronize_session=False)
     db.commit()
 
 

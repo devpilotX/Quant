@@ -28,13 +28,20 @@ from quantsys.costs import CostModel
 
 from qsdash.audit import notify_alert
 from qsdash.bus import PgSyncPublisher, SyncPublisher
-from qsdash.db import SessionLocal
+from qsdash.db import SessionLocal, now_ist
 from qsdash.models import (
     FillRow,
     OrderRow,
     PnlAttribution,
     PositionRow,
+    RuntimeConfig,
 )
+
+# runtime_config key holding the broker's durable cash ledger. Positions were
+# always persisted (PositionRow) but cash/realized were NOT — every restart
+# rebuilt cash from the bootstrap capital, so a carried book re-added its own
+# cost basis to equity (phantom P&L at each daily recycle).
+_CASH_STATE_KEY = "paper_broker_state"
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +64,9 @@ class PaperBroker:
 
     # ------------------------------------------------------------ helpers
     def load_open_state(self) -> None:
-        """Resume open paper positions from the DB after a restart."""
+        """Resume open paper positions AND the cash/realized ledger from the
+        DB after a restart, so the equity series is continuous across the
+        daily engine recycle."""
         sess = SessionLocal()
         try:
             rows = (sess.query(PositionRow)
@@ -66,6 +75,40 @@ class PaperBroker:
             for r in rows:
                 self.positions[r.symbol] = Position(r.symbol, r.qty, r.avg_price)
                 self._open_rows[r.symbol] = r.id
+            state = sess.query(RuntimeConfig).filter(
+                RuntimeConfig.key == _CASH_STATE_KEY).first()
+            if state is not None:
+                v = (state.value or {}).get("v") or {}
+                try:
+                    self.cash = float(v["cash"])
+                    self.realized_total = float(v.get("realized_total", 0.0))
+                    log.info("paper broker cash restored: cash=%.2f realized=%.2f",
+                             self.cash, self.realized_total)
+                except (KeyError, TypeError, ValueError):
+                    log.warning("ignoring malformed %s=%r", _CASH_STATE_KEY, v)
+        finally:
+            sess.close()
+
+    def _persist_cash(self, sess) -> None:
+        """Upsert the durable cash ledger INSIDE the caller's transaction, so
+        fills and the ledger commit (or roll back) together."""
+        row = sess.query(RuntimeConfig).filter(
+            RuntimeConfig.key == _CASH_STATE_KEY).first()
+        val = {"v": {"cash": self.cash, "realized_total": self.realized_total}}
+        if row is None:
+            sess.add(RuntimeConfig(key=_CASH_STATE_KEY, value=val,
+                                   updated_by="engine"))
+        else:
+            row.value = val
+            row.updated_at = now_ist()
+            row.updated_by = "engine"
+
+    def persist_cash(self) -> None:
+        """Own-transaction variant, for out-of-band resets (operator capital)."""
+        sess = SessionLocal()
+        try:
+            self._persist_cash(sess)
+            sess.commit()
         finally:
             sess.close()
 
@@ -120,6 +163,7 @@ class PaperBroker:
         try:
             for intent in decision.orders:
                 self._fill_one(sess, intent, decision, decision_id, prices, ts)
+            self._persist_cash(sess)
             sess.commit()
         except Exception:
             sess.rollback()
@@ -407,6 +451,7 @@ class PaperBroker:
                 )
                 fake = _FlattenDecision(ts)
                 self._fill_one(sess, intent, fake, None, prices, ts)
+            self._persist_cash(sess)
             sess.commit()
         except Exception:
             sess.rollback()

@@ -91,6 +91,8 @@ class LiveRunner:
         self.deployable_cap_frac: float | None = None
         self.deployable_cap_abs: float | None = None
         self._pending_bars: dict[str, Bar] = {}
+        self._bar_accum: dict[str, Bar] = {}      # completed bars awaiting the bucket decide
+        self._last_step_bucket: datetime | None = None
         self._lock = threading.Lock()
         self.feed = None  # set by main() to the AngelWebSocketFeed (feed health)
         # alert transition state (only alert on state CHANGES, not every bar)
@@ -185,22 +187,47 @@ class LiveRunner:
         self.deployable_cap_frac = rc.get("deployable_cap_frac")
         self.deployable_cap_abs = rc.get("deployable_cap_abs")
         self.paused = bool(rc.get("engine_paused", False))  # durable across restart
-        # Durable paper capital: a change via /control/paper-capital (or
-        # scripts/set_paper_capital.py) applies live through the command queue,
-        # but a bare engine restart would otherwise revert to the --capital
-        # bootstrap default. Re-apply the last operator value here so a
-        # terminal-set float persists across restarts. No-op in live mode
-        # (reset_paper_capital only touches a PaperBroker).
+        # Durable paper capital: applied ONLY when the operator value CHANGED
+        # (tracked via the paper_capital_applied marker). Re-applying it on
+        # every restart silently reset cash to the full float on top of a
+        # carried book — a phantom equity jump equal to the open positions'
+        # cost basis at every 08:50 recycle, compounding into the study's
+        # equity series. Unchanged value => the broker's persisted cash /
+        # realized (see PaperBroker.load_open_state) carries the true series.
         pc = rc.get("paper_capital")
-        if pc is not None:
-            try:
-                self.reset_paper_capital(float(pc))
-                log.info("durable paper_capital applied on startup: Rs%.0f", float(pc))
-            except (TypeError, ValueError):
-                log.warning("ignoring invalid durable paper_capital=%r", pc)
+        applied = rc.get("paper_capital_applied")
+        if pc is not None and pc != applied:
+            if isinstance(self.broker, PaperBroker) and self.broker.positions:
+                log.error(
+                    "durable paper_capital=%s NOT applied: open positions were "
+                    "carried across the restart. Flatten first, then re-set — "
+                    "keeping persisted cash so the equity series stays honest.", pc)
+            else:
+                try:
+                    self.reset_paper_capital(float(pc))
+                    self._set_runtime_key("paper_capital_applied", pc)
+                    log.info("durable paper_capital applied (operator change): "
+                             "Rs%.0f", float(pc))
+                except (TypeError, ValueError):
+                    log.warning("ignoring invalid durable paper_capital=%r", pc)
         for name in [s.name for s in self._all_strategies]:
             if rc.get(f"strategy_enabled.{name}") is False:
                 self.set_strategy_enabled(name, False)
+
+    def _set_runtime_key(self, key: str, value) -> None:
+        sess = SessionLocal()
+        try:
+            row = sess.query(RuntimeConfig).filter(RuntimeConfig.key == key).first()
+            if row is None:
+                sess.add(RuntimeConfig(key=key, value={"v": value},
+                                       updated_by="engine"))
+            else:
+                row.value = {"v": value}
+                row.updated_at = now_ist()
+                row.updated_by = "engine"
+            sess.commit()
+        finally:
+            sess.close()
 
     # ---------------------------------------------------- control surface
     def current_prices(self) -> dict[str, float]:
@@ -210,6 +237,7 @@ class LiveRunner:
         if isinstance(self.broker, PaperBroker):
             self.broker.cash = capital
             self.broker.realized_total = 0.0
+            self.broker.persist_cash()
 
     def set_strategy_enabled(self, name: str, enabled: bool) -> None:
         if enabled:
@@ -412,18 +440,20 @@ class LiveRunner:
         log.info("warmup: replayed %d bars across %d instruments (engine ready)",
                  n, len(per_sym))
 
-    def _seed_factor_daily(self) -> None:
-        """Give the factor sleeve its daily panel — it cannot derive 13 months
-        of history from live intraday bars, so 'enabled' without this would
-        silently mean 'no-op for a year'. EQUITY names only; best-effort per
-        symbol (a missing name just drops out of the breadth count)."""
-        fac = next((s for s in self.engine.strategies
-                    if s.name == "factor" and hasattr(s, "seed_daily")), None)
-        if fac is None:
+    def _seed_daily_panels(self) -> None:
+        """Give every panel sleeve (factor / reversal / downshock — anything
+        exposing ``seed_daily``) its daily history: none of them can derive
+        months of daily closes from live intraday bars, so 'enabled' without
+        this would silently mean 'no-op for a year'. One broker fetch per
+        EQUITY symbol, fanned out to every consumer; best-effort per symbol
+        (a missing name just drops out of the breadth count)."""
+        sleeves = [s for s in self.engine.strategies if hasattr(s, "seed_daily")]
+        if not sleeves:
             return
-        f = self.cfg.factor
-        days = int((max(f.lookback_bars + f.skip_bars, f.vol_lookback)
-                    + f.atr_n + 15) * 1.6)
+        days = 400
+        for s in sleeves:
+            if hasattr(s, "seed_days_needed"):
+                days = max(days, int(s.seed_days_needed()))
         end = now_ist()
         start = end - timedelta(days=days)
         n = 0
@@ -433,12 +463,14 @@ class LiveRunner:
             try:
                 rows = self.broker_adapter.historical_candles(sym, "ONE_DAY", start, end)
             except Exception as e:
-                log.warning("factor seed %s failed: %s", sym, e)
+                log.warning("daily panel seed %s failed: %s", sym, e)
                 continue
             if rows:
-                fac.seed_daily(sym, rows)
+                for s in sleeves:
+                    s.seed_daily(sym, rows)
                 n += 1
-        log.info("factor: daily panel seeded for %d equities", n)
+        log.info("daily panels seeded for %d equities across %s",
+                 n, [s.name for s in sleeves])
 
     def _seed_equity_snapshot(self) -> None:
         """Write one equity point at startup so the dashboard shows starting
@@ -456,7 +488,56 @@ class LiveRunner:
         except Exception as e:  # pragma: no cover - best-effort seed
             log.warning("initial equity snapshot failed: %s", e)
 
-    def run_forever(self, poll_seconds: float = 1.0) -> None:
+    def _absorb_bars(self, batch: dict[str, Bar]) -> None:
+        """Record bars into history WITHOUT deciding — for stragglers that
+        arrive after their bucket was already decided (or out-of-session
+        buckets, e.g. the pre-open aggregation of a stale overnight bar)."""
+        for sym, bar in batch.items():
+            h = self.histories.get(sym)
+            if h is not None:
+                h.append(bar)
+        self.recorder.record_bars(self.cfg.engine.decision_bar_minutes, batch)
+
+    def _poll_once(self, now: datetime, decide_grace_s: float = 3.0) -> bool:
+        """One poll-loop iteration: complete elapsed bars, accumulate, and run
+        at most ONE decision — for the bucket, at the bucket timestamp, on the
+        full cross-section. Returns True when a decision step ran.
+
+        Bars used to complete per-symbol on the next tick and the old loop
+        stepped on every non-empty drain: 3–5 decisions per bar, each on a
+        partial universe (the churn + duplicate-decision bug), and no
+        close-bar decision at all (nothing crosses 15:30).
+        """
+        self.aggregator.flush_older(now)
+        for sym, bar in self._drain_pending().items():
+            self._bar_accum[sym] = bar
+        if not self._bar_accum:
+            return False
+
+        bucket = max(b.ts for b in self._bar_accum.values())
+        older = {s: b for s, b in self._bar_accum.items() if b.ts < bucket}
+        if older:
+            self._absorb_bars(older)
+            self._bar_accum = {s: b for s, b in self._bar_accum.items()
+                               if b.ts >= bucket}
+        due = now >= bucket + timedelta(minutes=self.cfg.engine.decision_bar_minutes,
+                                        seconds=decide_grace_s)
+        if not (due and self._bar_accum):
+            return False
+        batch, self._bar_accum = self._bar_accum, {}
+        already = (self._last_step_bucket is not None
+                   and bucket <= self._last_step_bucket)
+        if already or not is_session_open(bucket):
+            self._absorb_bars(batch)
+            return False
+        # ONE decision per bucket, stamped at the bar ts — the backtest
+        # convention, so live and backtest share the same clock.
+        self._last_step_bucket = bucket
+        self.step(bucket, batch)
+        return True
+
+    def run_forever(self, poll_seconds: float = 1.0,
+                    decide_grace_s: float = 3.0) -> None:
         log.info("LiveRunner started mode=%s instruments=%d", self.mode,
                  len(self.instruments))
         self._started_monotonic = time.monotonic()
@@ -465,9 +546,9 @@ class LiveRunner:
         except Exception as e:  # best-effort — a cold start is still functional
             log.warning("warmup failed (engine starts cold): %s", e)
         try:
-            self._seed_factor_daily()
-        except Exception as e:  # factor then stays a breadth-gated no-op
-            log.warning("factor daily seed failed: %s", e)
+            self._seed_daily_panels()
+        except Exception as e:  # panel sleeves then stay breadth-gated no-ops
+            log.warning("daily panel seed failed: %s", e)
         self._seed_equity_snapshot()
         notify_alert(self.publisher, severity="info", kind="engine_start",
                      title=f"Engine started ({self.mode})",
@@ -476,11 +557,9 @@ class LiveRunner:
         last_heartbeat = 0.0
         while True:
             now = now_ist()
-            batch = self._drain_pending()
-            if batch and is_session_open(now):
-                self.step(now, batch)
-            else:
-                # idle (closed market or no completed bar): heartbeat + commands
+            stepped = self._poll_once(now, decide_grace_s)
+            if not stepped:
+                # idle (closed market or bucket not due): heartbeat + commands
                 if isinstance(self.broker, LiveExecutionBroker):
                     self.broker.pump(self.current_prices())
                 if time.monotonic() - last_heartbeat > 10:

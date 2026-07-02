@@ -79,8 +79,11 @@ class Runner:
             rc = {r.key: r.value.get("v") for r in sess.query(RuntimeConfig).all()}
         finally:
             sess.close()
-        if rc.get("paper_capital") and not self.broker.positions:
-            self.broker.cash = float(rc["paper_capital"])
+        # marker-gated like LiveRunner: apply the operator float only when it
+        # CHANGED; otherwise the broker's persisted cash carries the series
+        pc = rc.get("paper_capital")
+        if pc and pc != rc.get("paper_capital_applied") and not self.broker.positions:
+            self.broker.cash = float(pc)
         self.deployable_cap_frac = rc.get("deployable_cap_frac")
         self.deployable_cap_abs = rc.get("deployable_cap_abs")
         self.paused = bool(rc.get("engine_paused", False))  # durable across restart

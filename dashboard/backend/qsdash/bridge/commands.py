@@ -117,6 +117,10 @@ class CommandConsumer:
             if r.broker is not None and r.broker.positions:
                 raise _Reject("close all paper positions before changing capital")
             r.reset_paper_capital(cap)
+            # both keys so the startup path sees value == applied and does NOT
+            # re-reset cash on the next recycle (phantom-equity guard)
+            self._set_rc(sess, "paper_capital", cap)
+            self._set_rc(sess, "paper_capital_applied", cap)
             return {"ok": True, "capital": cap}
 
         if kind == "set_deployable_cap":

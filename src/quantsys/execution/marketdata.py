@@ -87,6 +87,25 @@ class BarAggregator:
                                      low=cur.low, close=cur.close, volume=cur.volume))
             self._building.clear()
 
+    def flush_older(self, now: datetime) -> int:
+        """Emit every in-progress bar whose bucket window has fully elapsed.
+
+        Without this, a symbol's bar only completes when its NEXT tick crosses
+        the bucket boundary — thin names complete seconds-to-minutes late (so a
+        poll-driven decision loop fires on partial cross-sections) and the last
+        bar of the session never completes at all (no tick ever crosses 15:30).
+        Returns the number of bars emitted."""
+        emitted = 0
+        with self._lock:
+            for sym, cur in list(self._building.items()):
+                if cur.ts + timedelta(minutes=self.bar_minutes) <= now:
+                    self.on_bar(sym, Bar(ts=cur.ts, open=cur.open, high=cur.high,
+                                         low=cur.low, close=cur.close,
+                                         volume=cur.volume))
+                    del self._building[sym]
+                    emitted += 1
+        return emitted
+
 
 def _default_ws_factory(auth_token, api_key, client_code, feed_token):  # pragma: no cover - network
     from SmartApi.smartWebSocketV2 import SmartWebSocketV2  # type: ignore
