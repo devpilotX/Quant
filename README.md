@@ -5,7 +5,7 @@ via Angel One SmartAPI. **Complete system: decision brain + event-driven
 backtester + execution layer + dashboard control plane + standalone research
 kit**, deployed in paper mode on a VPS.
 
-## Status (2026-07-02) — Forward Study 1 running on the paper VPS
+## Status (2026-07-02) — Forward Study 2 running on the paper VPS
 
 - **Deployed**: https://quant.devpilotx.com — paper engine on live Angel One
   data. `QS_LIVE_ARMED=0`: real money stays OFF, and the 2026-06-11 credential
@@ -13,19 +13,33 @@ kit**, deployed in paper mode on a VPS.
 - **Research verdict unchanged**: the 2017–26 alpha search is CLOSED — nothing
   cleared the deployment gate (`docs/RESEARCH_CLOSEOUT.md`). What runs now is
   the closeout's one sanctioned continuation: a **pre-registered, forward-only
-  paper study** (`docs/FORWARD_STUDY.md`) exercising all four pillars at tier
-  T6 (₹15cr paper float): trend + cointegration pairs (P1/P3), **12L/12S
-  market-neutral factor momentum on a self-seeded daily panel** (P2), expiry
-  fade (P1), and the zero-risk down-shock tracker (P4, daily timer).
+  paper study** (`docs/FORWARD_STUDY_2.md`, superseding Study 1 same-day after
+  a day-1 defect review — verdict appended in `docs/FORWARD_STUDY.md`) at tier
+  T6 (₹15cr paper float), **6 sleeves**: trend + cointegration pairs (P1/P3),
+  **12L/12S market-neutral factor momentum on a self-seeded daily panel** (P2,
+  primary candidate), expiry fade (P1), **down-shock event sleeve** (P4,
+  frozen z3.5/hold10 research rule, promoted from the tracker; the 20:30
+  zero-risk tracker continues as control), and **turn-of-month index tilt**
+  (P1b). A 7th sleeve (short-term reversal) is implemented+tested but ships
+  dark: its whole parameter grid was net-negative on 2017–26 data (rejected
+  arm, documented). **Learned regime-conditional Kelly tilt** adapts sleeve
+  allocation to which regimes each sleeve actually earns in (bounded, walk-
+  forward, audited).
+- **Day-1 fixes (2026-07-02, deployed with Study 2)**: exactly ONE decision
+  per 15-min bar on the full cross-section (was 3–5 partial-universe decides),
+  the session close bar is now decided (was never), decisions stamped at bar
+  time, paper cash/realized persist across the daily recycle (was phantom
+  equity), equity-scaled dust floor (was 1-share churn), weekly backtest timer
+  moved off the broker maintenance window + socket timeouts (was hanging).
 - **Universe**: 48 liquid large-caps + NIFTY/BANKNIFTY near-month futures
   (TATAMOTORS → TMPV/TMCV after the 2025 demerger). Index futures trade via
   **risk-capped min-lot promotion** (a 1-lot minimum ticket is allowed iff it
   risks ≤ 0.5% of equity).
-- **Ops automation** (`deploy/systemd/`): pre-open engine recycle 08:50 IST,
-  daily self-check 09:55 IST (GREEN/RED log + loud unit failure), down-shock
-  tracker 20:30 IST, weekly backtest refresh; the websocket feed **parks
-  outside session hours** (no overnight reconnect churn; pinned
-  `smartapi-python==1.5.5` + `websocket-client==0.59.0`).
+- **Ops automation** (`deploy/systemd/`): pre-open engine recycle 08:50 IST
+  (cash-safe), daily self-check 09:55 IST (GREEN/RED log + loud unit failure),
+  down-shock tracker 20:30 IST, weekly backtest refresh Sat 11:00 IST; the
+  websocket feed **parks outside session hours** (no overnight reconnect
+  churn; pinned `smartapi-python==1.5.5` + `websocket-client==0.59.0`).
 
 ```
 MarketState (bars, equity, positions)            <- built identically by backtest & live
@@ -142,7 +156,9 @@ src/quantsys/
   data/        BarHistory ring buffer, feature kernels (EMA/ATR/EWMA vol+cov)
   costs.py     Indian fee schedule + sqrt impact model
   regime/      Gaussian HMM + regime detector (fallback ladder)
-  strategies/  base contract + edge stats + trend + meanrev (registry: drop-in alphas)
+  strategies/  base contract + edge stats + trend/meanrev/expiry/factor/
+               downshock/tom (+reversal, dark) — registry: drop-in alphas;
+               _dailypanel.py = shared self-seeding daily-panel base
   portfolio/   TargetBook, Kelly, vol targeting, tier ladder, sizing engine
   risk/        exposure rules, kill switches, stops, reconciliation
   engine/      DecisionEngine orchestrator + order diffing
@@ -197,8 +213,8 @@ events to the browser in real time.
   (adapter + `QS_LIVE_ARMED` + passing real backtest). See `docs/GOLIVE.md`,
   `docs/DECISIONS.md` (#17–26), and `deploy/scripts/preflight.py`.
 
-Test counts: **176 engine tests**, **53 dashboard backend tests** (1 env-skip),
-all green (2026-07-02).
+Test counts: **191 engine tests**, **60 dashboard backend tests** (1 env-skip),
+all green (2026-07-02, post-Study-2).
 
 ## Research tooling (standalone) — `quantsys/research/`
 
@@ -240,7 +256,7 @@ and validators are pure and unit-tested (`tests/test_research.py`,
 
 1. **Rotate the Angel One credentials** (leaked 2026-06-11; still the hard
    blocker for any live arming) and fill Telegram alert creds in `deploy/.env`.
-2. **Forward Study 1 first read: 2027-01-02** (`docs/FORWARD_STUDY.md`) —
+2. **Forward Study 2 first read: 2027-01-05** (`docs/FORWARD_STUDY_2.md`) —
    observational only; the livegate criteria stand unchanged.
 3. **voloptions sleeve** stays disabled until a live option-chain feed +
    OptionUniverseManager exist.

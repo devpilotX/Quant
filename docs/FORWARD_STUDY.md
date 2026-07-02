@@ -1,8 +1,9 @@
 # quantsys — Forward Study 1 (pre-registered, paper-only)
 
-*Registered: **2026-07-02**, before any forward results existed. Status: RUNNING on the
-paper engine at quant.devpilotx.com. Nothing in this file may be tuned while the study
-runs; a parameter change ends this study and requires a fresh registration.*
+*Registered: **2026-07-02**, before any forward results existed. Status:
+**SUPERSEDED same-day by Forward Study 2** (`FORWARD_STUDY_2.md`) after exactly one
+session and zero evaluation reads — see the appended final verdict at the bottom.
+Original registration text preserved verbatim below.*
 
 ## Why this study is legitimate
 
@@ -77,3 +78,20 @@ re-run of the broad-universe research config — treated as a NEW hypothesis.*
 - 20:30 IST daily `quant-downshock.timer`: Pillar-4 zero-risk forward log.
 - Feed parks outside session hours (no overnight reconnect churn); websocket stack
   pinned (`smartapi-python==1.5.5`, `websocket-client==0.59.0`).
+
+---
+
+## FINAL VERDICT (appended 2026-07-02, per the registration's append-only rule)
+
+**Study 1 ended after one session (2026-07-02), superseded by Forward Study 2 —
+cause: implementation defects found in the day-1 operational review, NOT results**
+(none were read). The decisive defect: paper cash/realized did not persist across the
+daily 08:50 engine recycle while the durable ₹15cr float re-applied on top of the
+carried book — from day 2 the registered equity metrics (Sharpe/CAGR/DD) would have
+been computed on a phantom-compounding series, i.e. the evaluation plan was
+unmeasurable as registered. Also fixed at supersession: 3–5 duplicate decisions per
+bar on partial cross-sections (and no close-bar decision at all), flat ₹5k dust floor
+churning 1-share orders at ₹15cr, and the hung weekly backtest unit. The single
+session's fills and equity ticks remain in the database, labeled and continuous; the
+sleeve set and risk stack carry into Study 2 unchanged except as its registration
+states. No parameter of any Study-1 sleeve was altered in response to performance.
