@@ -43,9 +43,12 @@ from quantsys.risk.rules import RiskContext, apply_exposure_rules
 from quantsys.strategies.base import REGISTRY, OnlineEdgeStats, Strategy
 
 # import for side effect: strategy registration
+from quantsys.strategies import downshock as _downshock  # noqa: F401
 from quantsys.strategies import expiry as _expiry  # noqa: F401
 from quantsys.strategies import factor as _factor  # noqa: F401
 from quantsys.strategies import meanrev as _meanrev  # noqa: F401
+from quantsys.strategies import reversal as _reversal  # noqa: F401
+from quantsys.strategies import tom as _tom  # noqa: F401
 from quantsys.strategies import trend as _trend  # noqa: F401
 from quantsys.strategies import voloptions as _voloptions  # noqa: F401
 
@@ -74,6 +77,12 @@ class DecisionEngine:
             s.name: OnlineEdgeStats(cfg.kelly.edge_halflife_bars, cfg.kelly.prior_obs, cfg.kelly.var_floor)
             for s in self.strategies
         }
+        # regime-conditional edge buckets (per strategy x regime label),
+        # soft-assigned by regime probability — feeds the Kelly regime tilt
+        self.regime_stats: dict[str, dict[str, OnlineEdgeStats]] = {
+            s.name: {} for s in self.strategies
+        }
+        self._last_regime_probs: dict[str, float] = {}
         self.detector = RegimeDetector(cfg.regime, cfg.engine.index_symbol)
         self.risk = RiskEngine(
             cfg.drawdown, cfg.sizing.base_risk_frac,
@@ -83,7 +92,9 @@ class DecisionEngine:
         self.allocator = KellyAllocator(cfg.kelly)
         self.cost_model = CostModel(cfg.costs)
         self.voltargeter = VolTargeter(cfg.vol_target, cfg.engine.decision_bar_minutes)
-        self.sizer = SizingEngine(cfg.sizing, self.cost_model, cfg.engine.min_order_notional)
+        self.sizer = SizingEngine(cfg.sizing, self.cost_model,
+                                  cfg.engine.min_order_notional,
+                                  cfg.engine.min_order_frac)
 
         # virtual unit books for online edge estimation (see post_bar)
         self._unit_nets: dict[str, dict[str, float]] = {}      # decided at t
@@ -106,13 +117,17 @@ class DecisionEngine:
         if pre.kill_reason is not None:
             audits.append(AuditEvent("engine", "kill_switch", pre.kill_reason))
             orders = diff_orders([], state.positions, self.instruments, prices, tier,
-                                 cfg.engine.min_order_notional, kill=True)
+                                 self.sizer.effective_min_notional(state.equity),
+                                 kill=True)
             self.risk.stops.refresh([])
             self._shift_unit_nets({}, prices)
             return self._decision(state, tier, audits, halted=False,
                                   kill_reason=pre.kill_reason, risk_pre=pre, orders=orders)
 
         regime = self.detector.update(state)
+        # attribution memory for post_bar: the unit book decided THIS bar earns
+        # its next-bar P&L under THIS regime (causal — no look-ahead)
+        self._last_regime_probs = dict(regime.probs)
         universe = self._universe(state, tier)
         view = state.restricted(universe | {cfg.engine.index_symbol})
         active = self.strategies[: tier.max_strategies]
@@ -149,7 +164,8 @@ class DecisionEngine:
             d = unit_nets.setdefault(c.strategy, {})
             d[c.symbol] = d.get(c.symbol, 0.0) + c.qty
 
-        kelly_f = self.allocator.allocate(self.edge_stats, regime, active_names, audits)
+        kelly_f = self.allocator.allocate(self.edge_stats, regime, active_names,
+                                          audits, tilts=self._regime_tilts(regime, active_names))
         book = self.sizer.build_raw(signals, kelly_f, state.equity * pre.risk_frac_eff, view, audits)
 
         cov_syms, sigma = self._covariance(state, book.symbols())
@@ -175,7 +191,7 @@ class DecisionEngine:
 
         orders = diff_orders(
             targets, state.positions, self.instruments, prices, tier,
-            cfg.engine.min_order_notional,
+            self.sizer.effective_min_notional(state.equity),
             risk_reducing_symbols={sym for (_, sym) in hits},
         )
         return self._decision(state, tier, audits, halted=False, kill_reason=None,
@@ -205,7 +221,43 @@ class DecisionEngine:
                 if dq > 0 and inst is not None and px:
                     pnl -= dq * px * inst.point_value * self.cost_model_proportional(inst)
             if state.equity > 0:
-                self.edge_stats[strat_name].update(pnl / state.equity)
+                r = pnl / state.equity
+                self.edge_stats[strat_name].update(r)
+                # regime buckets: soft-assign by the probabilities that ruled
+                # when this unit book was decided (previous bar)
+                if self.cfg.kelly.regime_tilt_beta > 0.0:
+                    buckets = self.regime_stats.setdefault(strat_name, {})
+                    for label, p in self._last_regime_probs.items():
+                        if p <= 1e-3:
+                            continue
+                        b = buckets.get(label)
+                        if b is None:
+                            k = self.cfg.kelly
+                            b = OnlineEdgeStats(k.edge_halflife_bars, k.prior_obs,
+                                                k.var_floor)
+                            buckets[label] = b
+                        b.update(r, weight=p)
+
+    def _regime_tilts(self, regime, active: list[str]) -> dict[str, float] | None:
+        """Learned regime-conditional Kelly tilt (see KellyConfig). Returns None
+        (no-op) when disabled so default behaviour is bit-identical."""
+        k = self.cfg.kelly
+        if k.regime_tilt_beta <= 0.0:
+            return None
+        out: dict[str, float] = {}
+        for s in active:
+            buckets = self.regime_stats.get(s, {})
+            score = 0.0
+            for label, p in regime.probs.items():
+                b = buckets.get(label)
+                if b is None or b.n_eff <= 1.0 or p <= 0.0:
+                    continue
+                n = min(b.n_eff, k.regime_tilt_neff_cap)
+                t = b.mean / math.sqrt(max(b.var, k.var_floor) / n)
+                score += p * math.tanh(t / 2.0)
+            out[s] = float(np.clip(1.0 + k.regime_tilt_beta * score,
+                                   k.regime_tilt_min, k.regime_tilt_max))
+        return out
 
     def cost_model_proportional(self, inst: Instrument) -> float:
         """Per-side proportional cost fraction (taxes + slippage, no flat fees)."""
@@ -296,6 +348,9 @@ class DecisionEngine:
             "ladder": self.ladder.state_dict(),
             "detector": self.detector.state_dict(),
             "edge_stats": {k: v.to_dict() for k, v in self.edge_stats.items()},
+            "regime_stats": {s: {lb: b.to_dict() for lb, b in buckets.items()}
+                             for s, buckets in self.regime_stats.items()},
+            "last_regime_probs": dict(self._last_regime_probs),
             "strategies": {s.name: s.state_dict() for s in self.strategies},
             "unit_nets": self._unit_nets,
             "unit_nets_old": self._unit_nets_old,
@@ -309,6 +364,17 @@ class DecisionEngine:
         for k, v in d.get("edge_stats", {}).items():
             if k in self.edge_stats:
                 self.edge_stats[k].load(v)
+        kcfg = self.cfg.kelly
+        for s, buckets in d.get("regime_stats", {}).items():
+            if s not in self.regime_stats:
+                continue
+            for lb, bd in buckets.items():
+                b = OnlineEdgeStats(kcfg.edge_halflife_bars, kcfg.prior_obs,
+                                    kcfg.var_floor)
+                b.load(bd)
+                self.regime_stats[s][lb] = b
+        self._last_regime_probs = {k: float(v) for k, v in
+                                   d.get("last_regime_probs", {}).items()}
         for s in self.strategies:
             if s.name in d.get("strategies", {}):
                 s.load_state(d["strategies"][s.name])

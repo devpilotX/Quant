@@ -39,6 +39,7 @@ class KellyAllocator:
         regime: RegimeState,
         active: list[str],
         audits: list[AuditEvent],
+        tilts: Mapping[str, float] | None = None,
     ) -> dict[str, float]:
         cfg = self.cfg
         f: dict[str, float] = {}
@@ -60,6 +61,12 @@ class KellyAllocator:
                 audits.append(AuditEvent("kelly", "explore_floor",
                                          f"{s}: forced f->{f_s:.3f} (paper exploration)"))
             f_s *= regime.strategy_weights.get(s, 1.0)
+            if tilts is not None:
+                t = tilts.get(s, 1.0)
+                if t != 1.0:
+                    audits.append(AuditEvent("kelly", "regime_tilt",
+                                             f"{s}: x{t:.3f} (learned regime edge)"))
+                    f_s *= t
             f[s] = min(f_s, cfg.f_cap)
 
         gross = sum(f.values())

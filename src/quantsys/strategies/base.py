@@ -34,10 +34,12 @@ class OnlineEdgeStats:
         self.s1 = 0.0
         self.s2 = 0.0
 
-    def update(self, r: float) -> None:
-        self.s0 = 1.0 + self.lam * self.s0
-        self.s1 = r + self.lam * self.s1
-        self.s2 = r * r + self.lam * self.s2
+    def update(self, r: float, weight: float = 1.0) -> None:
+        """weight < 1 soft-assigns the observation (e.g. by regime
+        probability); weight=1.0 is the classic unweighted update."""
+        self.s0 = weight + self.lam * self.s0
+        self.s1 = weight * r + self.lam * self.s1
+        self.s2 = weight * r * r + self.lam * self.s2
 
     @property
     def n_eff(self) -> float:

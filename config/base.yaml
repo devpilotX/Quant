@@ -2,6 +2,21 @@
 # Every value here overrides the typed defaults in quantsys/config/schema.py.
 # Tier ladder, risk limits, costs: see schema.py for the full documented set.
 #
+# 2026-07-02 (evening) FORWARD STUDY 2 (paper only — docs/FORWARD_STUDY_2.md,
+# supersedes Study 1 same-day, before any evaluation read existed):
+#   * three NEW pre-registered sleeves: downshock (frozen Pillar-4 research
+#     rule, promoted from the zero-risk tracker), reversal and tom (new
+#     hypotheses, no historical fit) — code defaults stay False, this file is
+#     the single switch;
+#   * tier ladder override: T5 5 / T6 7 strategy slots so the wider ensemble
+#     actually runs (schema default capped at 4);
+#   * kelly.regime_tilt_beta on: learned regime-conditional allocation tilt
+#     (bounded 0.5x..1.5x, walk-forward by construction);
+#   * engine.min_order_frac: equity-scaled dust floor (kills 1-share churn at
+#     Rs15cr; no effect at small floats);
+#   * regime strategy_weights extended to every sleeve (stated priors — the
+#     learned tilt refines within its bounds).
+#
 # 2026-07-02 FORWARD-STUDY UNLOCK (paper only — see docs/FORWARD_STUDY.md):
 #   * universe broadened to 48 liquid large-caps + 2 index futures so the
 #     Pillar-2 factor sleeve has real breadth (TATAMOTORS became TMPV/TMCV
@@ -25,12 +40,16 @@
 engine:
   decision_bar_minutes: 15
   index_symbol: NIFTY
+  min_order_frac: 0.0001         # dust floor = max(Rs5k, 1bp of equity)
 
 sizing:
   base_risk_frac: 0.006          # 0.6% of equity at risk per unit trade
   max_signals_per_strategy: 40   # factor emits a 24-name basket; don't truncate it
   min_lot_promotion: true        # index-futures unlock (single-leg, risk-capped)
   promotion_max_risk_frac: 0.005
+
+kelly:
+  regime_tilt_beta: 0.4          # learned regime-conditional tilt, clip [0.5, 1.5]
 
 vol_target:
   annual_vol_target: 0.13
@@ -40,19 +59,63 @@ drawdown:
   max_drawdown: 0.18
   kill_drawdown: 0.20
 
+# Full ladder restated (a YAML list replaces the schema default wholesale):
+# identical to schema _DEFAULT_LADDER except max_strategies at T5 (4 -> 5) and
+# T6 (4 -> 7) so the Study-2 ensemble runs; every other number unchanged.
+tiers:
+  ladder:
+    - {name: T1, min_equity: 1.0e5, max_instruments: 2,  max_strategies: 1, execution_style: LIMIT_SINGLE,  adv_cap_pct: 0.01,  min_cost_multiple: 5.0,  rebalance_band: 0.35, gross_leverage_cap: 1.0}
+    - {name: T2, min_equity: 5.0e5, max_instruments: 3,  max_strategies: 2, execution_style: LIMIT_SINGLE,  adv_cap_pct: 0.01,  min_cost_multiple: 4.0,  rebalance_band: 0.30, gross_leverage_cap: 1.2}
+    - {name: T3, min_equity: 1.5e6, max_instruments: 5,  max_strategies: 3, execution_style: LIMIT_SMART,   adv_cap_pct: 0.015, min_cost_multiple: 3.0,  rebalance_band: 0.25, gross_leverage_cap: 1.5}
+    - {name: T4, min_equity: 1.0e7, max_instruments: 20, max_strategies: 4, execution_style: LIMIT_SMART,   adv_cap_pct: 0.02,  min_cost_multiple: 2.0,  rebalance_band: 0.20, gross_leverage_cap: 2.0}
+    - {name: T5, min_equity: 5.0e7, max_instruments: 30, max_strategies: 5, execution_style: SLICE_TWAP,    adv_cap_pct: 0.03,  min_cost_multiple: 1.5,  rebalance_band: 0.15, gross_leverage_cap: 2.2}
+    - {name: T6, min_equity: 1.5e8, max_instruments: 40, max_strategies: 7, execution_style: ALMGREN_CHRISS, adv_cap_pct: 0.05, min_cost_multiple: 1.25, rebalance_band: 0.10, gross_leverage_cap: 2.5}
+
+# Regime priors for the wider ensemble (labels replace the schema default
+# wholesale — all three restated). The learned kelly tilt refines these within
+# [regime_tilt_min, regime_tilt_max] as forward evidence accumulates.
+regime:
+  labels:
+    calm_trend:
+      risk_scaler: 1.00
+      strategy_weights: {trend: 1.2, meanrev: 0.8, factor: 1.0, expiry: 1.0,
+                         downshock: 0.9, reversal: 0.8, tom: 1.0}
+    calm_range:
+      risk_scaler: 0.90
+      strategy_weights: {trend: 0.7, meanrev: 1.2, factor: 1.0, expiry: 1.1,
+                         downshock: 1.0, reversal: 1.2, tom: 1.0}
+    turbulent:
+      risk_scaler: 0.35
+      strategy_weights: {trend: 0.6, meanrev: 0.4, factor: 0.8, expiry: 0.7,
+                         downshock: 1.2, reversal: 0.6, tom: 0.7}
+
 # Costs: verified June 2026 — Budget 2026 STT (futures 0.05%, options 0.15%)
 # effective 2026-04-01; Angel One Rs 20/0.25% per order; re-verify quarterly.
 costs:
   brokerage_flat: 20.0
 
-# Paper forward-study sleeves. Code defaults keep both False; this file is the
-# single switch that turns them on for the deployed paper engine.
+# Paper forward-study sleeves. Code defaults keep all of these False; this
+# file is the single switch that turns them on for the deployed paper engine.
 factor:
   enabled: true
   min_universe: 34               # T6 view is 40 names; margin for history gaps
   top_k: 12                      # 12 long / 12 short, dollar-neutral
 expiry:
   enabled: true
+downshock:
+  enabled: true                  # frozen Pillar-4 rule (z 3.5 / hold 10)
+# reversal stays OFF: the pre-deployment sanity check (scripts/
+# _study2_sanity_checks.py, 2026-07-02) showed the WHOLE parameter
+# neighborhood net-negative on 2017-26 daily data (Sharpe -0.58..-0.94,
+# PBO 0.84) — deploying it would knowingly burn study risk budget. The code
+# ships tested for a future cost-structure change; documented as a REJECTED
+# arm in docs/FORWARD_STUDY_2.md (n_trials accounting included).
+reversal:
+  enabled: false
+  min_universe: 34
+tom:
+  enabled: true                  # suggestive prior (t=1.53), trivial cost
+  symbols: [NIFTY-FUT, BANKNIFTY-FUT]
 
 universe:
   - {symbol: NIFTY,        kind: INDEX,  exchange: NSE, sector: index}

@@ -21,6 +21,11 @@ class EngineConfig(BaseModel):
     cov_shrink: float = 0.15
     vol_halflife_bars: float = 60.0     # per-instrument EWMA vol for impact/stops
     min_order_notional: float = 5_000.0
+    # Equity-scaled dust floor: effective min notional = max(min_order_notional,
+    # min_order_frac * equity). A flat Rs5k floor is meaningless on a Rs15cr
+    # book — 1-share rebalance dribbles passed it and churned every bar. 0 = off
+    # (small accounts keep the flat floor).
+    min_order_frac: float = 0.0
     index_symbol: str = "NIFTY"         # regime features source
     trailing_stop_strategies: list[str] = ["trend"]
     stop_cooldown_bars: int = 12        # re-entry lockout after a hard stop
@@ -58,6 +63,17 @@ class KellyConfig(BaseModel):
     ramp_floor: float = 0.08       # incubation allocation while n_eff < ramp_obs
     ramp_obs: float = 750.0
     explore_floor: float = 0.0     # forced min allocation (paper exploration only); 0 = off
+    # Regime-conditional Kelly tilt: per-(strategy, regime-label) edge stats
+    # (same EWMA estimator, soft-assigned by regime probability) tilt each
+    # strategy's f by clip(1 + beta * sum_label p_label * tanh(t_label / 2),
+    # min, max) where t is the bucket's shrunk t-stat with n_eff capped. The
+    # allocation ADAPTS to which regimes a sleeve has actually earned in —
+    # walk-forward by construction (only past bars enter the buckets).
+    # beta = 0 (default) disables the tilt entirely: live/backtest unchanged.
+    regime_tilt_beta: float = 0.0
+    regime_tilt_min: float = 0.5
+    regime_tilt_max: float = 1.5
+    regime_tilt_neff_cap: float = 400.0
 
     @field_validator("kelly_fraction")
     @classmethod
@@ -277,6 +293,72 @@ class FactorConfig(BaseModel):
     expected_edge_R: float = 0.10
 
 
+class DownShockConfig(BaseModel):
+    # Pillar 4 event sleeve — the down-shock underreaction drift, promoted from
+    # the zero-risk tracker to a PAPER sleeve for the forward study. The rule is
+    # the FROZEN research config (docs/PILLAR4_EVENT_DRIVEN.md §8a + gate table:
+    # z 3.5 / hold 10, IS-selected, hold-out Sharpe 1.75 but deflated 0.46 →
+    # historically DEAD; forward evidence is the only open question). DISABLED
+    # by default. Deviation, disclosed: the research sleeve was beta-hedged with
+    # index futures; at explore-floor sizing one hedge lot exceeds the group
+    # budget (lot rounding would drop every group), so the paper sleeve trades
+    # the shocked name UNHEDGED SHORT and the book's net-exposure caps bound the
+    # residual beta. Signals: daily panel z_t = r_t / sigma_{t-1} (60d lagged
+    # std), volume ratio vs 20d mean; event = z <= -z_threshold AND vol_ratio >=
+    # volume_ratio_min, de-clustered per name; enter next session, hold
+    # hold_days sessions, daily-ATR stop.
+    enabled: bool = False
+    priority: int = 6
+    z_threshold: float = 3.5
+    vol_window: int = 60
+    volume_window: int = 20
+    volume_ratio_min: float = 2.0
+    decluster_days: int = 30
+    hold_days: int = 10
+    max_concurrent: int = 5
+    atr_n: int = 14
+    atr_mult: float = 2.5
+    expected_edge_R: float = 0.12
+    min_history_days: int = 80
+
+
+class ReversalConfig(BaseModel):
+    # NEW pre-registered hypothesis (Forward Study 2): short-term cross-sectional
+    # reversal — long the past-week losers, short the winners, dollar-neutral,
+    # weekly cadence on the self-seeded daily panel (same machinery as factor).
+    # Classic anomaly (Jegadeesh 1990); NO historical validation was run on our
+    # data (turnover is high and costs likely bite — that is exactly what the
+    # forward paper record measures). DISABLED by default.
+    enabled: bool = False
+    priority: int = 7
+    lookback_days: int = 5
+    rebalance_days: int = 5
+    top_k: int = 8
+    min_universe: int = 34
+    market_neutral: bool = True
+    atr_n: int = 14
+    atr_mult: float = 2.5
+    expected_edge_R: float = 0.08
+
+
+class TomConfig(BaseModel):
+    # NEW pre-registered hypothesis (Forward Study 2): turn-of-month index tilt —
+    # long index futures from the last `days_before` WEEKDAYS of the month
+    # through the first `days_after` weekdays of the next (documented
+    # institutional-flow calendar effect; weekday approximation of session days,
+    # deterministic from the bar timestamp alone). Flat otherwise. DISABLED by
+    # default.
+    enabled: bool = False
+    priority: int = 8
+    days_before: int = 2
+    days_after: int = 3
+    symbols: list[str] = ["NIFTY-FUT"]
+    timeframe_bars: int = 25          # ~1 session per resampled bar on a 15-min clock
+    atr_n: int = 14
+    atr_mult: float = 3.0
+    expected_edge_R: float = 0.08
+
+
 class InstrumentConfig(BaseModel):
     symbol: str
     token: str = ""
@@ -305,6 +387,9 @@ class AppConfig(BaseModel):
     voloptions: VolOptionsConfig = VolOptionsConfig()
     expiry: ExpiryConfig = ExpiryConfig()
     factor: FactorConfig = FactorConfig()
+    downshock: DownShockConfig = DownShockConfig()
+    reversal: ReversalConfig = ReversalConfig()
+    tom: TomConfig = TomConfig()
     universe: list[InstrumentConfig] = []
 
 

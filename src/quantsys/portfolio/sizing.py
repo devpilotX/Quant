@@ -27,10 +27,16 @@ from quantsys.portfolio.tiers import TierState
 
 
 class SizingEngine:
-    def __init__(self, cfg: SizingConfig, cost_model: CostModel, min_order_notional: float):
+    def __init__(self, cfg: SizingConfig, cost_model: CostModel,
+                 min_order_notional: float, min_order_frac: float = 0.0):
         self.cfg = cfg
         self.cost_model = cost_model
         self.min_order_notional = min_order_notional
+        self.min_order_frac = min_order_frac
+
+    def effective_min_notional(self, equity: float) -> float:
+        """Dust floor scaled to the book: max(flat floor, frac * equity)."""
+        return max(self.min_order_notional, self.min_order_frac * max(equity, 0.0))
 
     # ------------------------------------------------------------ raw build
     def build_raw(
@@ -138,7 +144,7 @@ class SizingEngine:
 
             gross = sum(abs(q) * state.price(c.symbol) * state.instruments[c.symbol].point_value
                         for c, q in rounded)
-            if gross < self.min_order_notional:
+            if gross < self.effective_min_notional(state.equity):
                 audits.append(AuditEvent("sizing", "dust", gid, before=gross, after=0.0))
                 continue
 
