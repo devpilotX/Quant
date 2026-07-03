@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily quantsys off-box DB backup (20:00 IST, post-close)
+
+[Timer]
+# 14:30 UTC = 20:00 IST — after the session and the last intraday jobs, before
+# the 20:30 IST down-shock tracker. Persistent so a missed run fires on boot.
+OnCalendar=*-*-* 14:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=quantsys: daily encrypted off-box DB backup to the operator Telegram chat
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/quant/deploy
+ExecStart=/usr/bin/bash /opt/quant/deploy/scripts/offbox_backup.sh
