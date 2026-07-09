@@ -469,6 +469,15 @@ class LiveRunner:
                 for s in sleeves:
                     s.seed_daily(sym, rows)
                 n += 1
+        # Warmup (run just before this) drove decide() on the still-empty
+        # panels, advancing any cadence counters; tell the sleeves seeding is
+        # done so cadence-based ones (factor) rebalance on the next live bar
+        # instead of staying a no-op until the counter rolls over.
+        for s in sleeves:
+            try:
+                s.on_seeded()
+            except Exception as e:  # pragma: no cover - defensive
+                log.warning("on_seeded %s failed: %s", s.name, e)
         log.info("daily panels seeded for %d equities across %s",
                  n, [s.name for s in sleeves])
 

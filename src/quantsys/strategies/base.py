@@ -87,6 +87,17 @@ class Strategy(ABC):
     def warmup_bars(self) -> int:
         """Decision bars required before signals are meaningful."""
 
+    def on_seeded(self) -> None:
+        """Called once after out-of-band daily-panel seeding completes (live/
+        paper only — the backtest never seeds). Panel sleeves that rebalance on
+        an internal cadence override this to force a rebalance on the next bar:
+        warmup runs decide() BEFORE the panel is seeded, so the first
+        (empty-panel) rebalance already advanced the cadence counter, and
+        without this the sleeve stays a no-op until the counter happens to roll
+        over again — which, across engine restarts that re-run warmup, is never.
+        Default: no-op (event-driven / every-bar sleeves need nothing)."""
+        return None
+
     def state_dict(self) -> dict:
         return {}
 

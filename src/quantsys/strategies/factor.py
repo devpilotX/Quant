@@ -70,6 +70,14 @@ class FactorStrategy(Strategy):
         # the current day's OHLC row, so no long warmup is required.
         return 8
 
+    def on_seeded(self) -> None:
+        # Warmup replays decide() before _seed_daily_panels runs, so the first
+        # rebalance already fired on an empty panel and left _days_since near 0.
+        # Force the next live bar to rebalance now that real daily history
+        # exists — otherwise factor waits rebalance_bars sessions (and every
+        # restart re-runs warmup and resets the clock, so it never fires).
+        self._days_since = 10 ** 9
+
     # ------------------------------------------------------------- signals
     def generate_signals(self, state: MarketState) -> list[Signal]:
         cfg = self.cfg
