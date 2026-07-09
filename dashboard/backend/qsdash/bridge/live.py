@@ -575,15 +575,28 @@ class LiveRunner:
                      title=f"Engine started ({self.mode})",
                      body=f"instruments={len(self.instruments)} "
                           "data_source=angelone")
-        last_heartbeat = 0.0
+        self._last_heartbeat_mono = 0.0
+        self._loop_errors = 0
         while True:
+            self._guarded_iteration(decide_grace_s)
+            time.sleep(poll_seconds)
+
+    def _guarded_iteration(self, decide_grace_s: float) -> None:
+        """One poll-loop tick, guarded. A transient failure — most importantly a
+        momentary Postgres/DNS blip on a recorder write (`failed to resolve host
+        'postgres'`, seen 2026-07-07) — must NOT propagate out of run_forever and
+        exit the process: `unless-stopped` then restarts the container, re-running
+        warmup + daily-panel seeding and throwing away warm sleeve/edge state over
+        a hiccup that pool_pre_ping would have healed on the next tick. So log it
+        and retry next poll instead. KeyboardInterrupt/SystemExit still stop us."""
+        try:
             now = now_ist()
             stepped = self._poll_once(now, decide_grace_s)
             if not stepped:
                 # idle (closed market or bucket not due): heartbeat + commands
                 if isinstance(self.broker, LiveExecutionBroker):
                     self.broker.pump(self.current_prices())
-                if time.monotonic() - last_heartbeat > 10:
+                if time.monotonic() - self._last_heartbeat_mono > 10:
                     feed_age = self.feed.seconds_since_tick() if self.feed else None
                     self.recorder.heartbeat(
                         status=("paused" if self.paused else
@@ -593,9 +606,15 @@ class LiveRunner:
                                 "feed_age_s": (round(feed_age, 1)
                                                if feed_age is not None else None)})
                     self._alert_on_feed(now)
-                    last_heartbeat = time.monotonic()
+                    self._last_heartbeat_mono = time.monotonic()
                 self.commands.poll()
-            time.sleep(poll_seconds)
+            self._loop_errors = 0
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as e:
+            self._loop_errors = getattr(self, "_loop_errors", 0) + 1
+            log.error("engine loop tick failed (#%d) — retrying next poll, not "
+                      "crashing the engine: %s", self._loop_errors, e)
 
 
 def main() -> None:

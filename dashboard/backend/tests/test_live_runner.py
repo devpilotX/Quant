@@ -220,6 +220,23 @@ def test_set_mode_live_allowed_with_passing_backtest(live_runner, db):
     db.commit()
 
 
+def test_loop_iteration_survives_transient_db_error(live_runner, monkeypatch):
+    """A transient failure on a poll tick (e.g. the 2026-07-07 momentary
+    'failed to resolve host postgres' DNS blip) must be logged and swallowed,
+    NOT propagated — otherwise run_forever exits and the container restarts,
+    re-running warmup + panel seeding and dumping warm sleeve state over a
+    one-second hiccup."""
+    def boom(*a, **k):
+        raise RuntimeError("failed to resolve host 'postgres'")
+
+    monkeypatch.setattr(live_runner, "_poll_once", boom)
+    live_runner._last_heartbeat_mono = 0.0
+    live_runner._guarded_iteration(3.0)           # must NOT raise
+    assert live_runner._loop_errors == 1
+    live_runner._guarded_iteration(3.0)           # keeps counting, still alive
+    assert live_runner._loop_errors == 2
+
+
 # --------------------------------------------------- engine pause / resume
 def test_engine_pause_resume_via_command(live_runner, db):
     """Pause/resume flow through the command queue: the consumer flips the
