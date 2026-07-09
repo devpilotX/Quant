@@ -480,6 +480,16 @@ class LiveRunner:
                 log.warning("on_seeded %s failed: %s", s.name, e)
         log.info("daily panels seeded for %d equities across %s",
                  n, [s.name for s in sleeves])
+        # Depth telemetry: a cross-sectional sleeve that silently receives too
+        # few rows (fewer calendar days fetched than its lookback needs) stays
+        # breadth-gated and never trades — surface it instead of hiding it.
+        for s in sleeves:
+            panel = getattr(s, "_panel", None)
+            if panel:
+                depths = sorted(len(dq) for dq in panel.values())
+                log.info("panel[%s]: %d names, rows min/med/max=%d/%d/%d",
+                         s.name, len(depths), depths[0],
+                         depths[len(depths) // 2], depths[-1])
 
     def _seed_equity_snapshot(self) -> None:
         """Write one equity point at startup so the dashboard shows starting

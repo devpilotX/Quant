@@ -70,6 +70,16 @@ class FactorStrategy(Strategy):
         # the current day's OHLC row, so no long warmup is required.
         return 8
 
+    def seed_days_needed(self) -> int:
+        """CALENDAR days of daily candles the startup seeder must fetch. The
+        panel needs _depth TRADING rows (>= lookback_bars + skip_bars + 1 for a
+        rebalance); ~1.6 calendar days cover one trading day (weekends +
+        holidays), plus a buffer. WITHOUT this method the seeder falls back to
+        its 400-day default -> only ~270 trading rows -> just under the 274-row
+        rebalance floor -> factor silently stays breadth-gated (a no-op) live
+        even though it works in unit tests seeded with contiguous rows."""
+        return int(self._depth * 1.6) + 15
+
     def on_seeded(self) -> None:
         # Warmup replays decide() before _seed_daily_panels runs, so the first
         # rebalance already fired on an empty panel and left _days_since near 0.

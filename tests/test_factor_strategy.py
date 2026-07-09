@@ -123,6 +123,21 @@ def test_factor_skips_stale_panels():
     assert all(s.symbol != stale_sym for s in sigs)
 
 
+def test_factor_seed_days_needed_covers_lookback():
+    """The startup seeder fetches CALENDAR days but factor's rebalance needs
+    lookback_bars + skip_bars + 1 TRADING rows. If seed_days_needed() is too
+    small (or absent -> the seeder's 400-day default), factor gets ~270 rows,
+    stays below breadth, and never trades live even though contiguous-row unit
+    tests pass. Guard the calendar->trading margin at the production lookback."""
+    cfg = FactorConfig(enabled=True, lookback_bars=252, skip_bars=21,
+                       vol_lookback=252, atr_n=14, min_universe=34)
+    strat = FactorStrategy(cfg)
+    need_trading = cfg.lookback_bars + cfg.skip_bars + 1        # 274 rows
+    # ~0.66 trading days per calendar day (weekends + NSE holidays), conservative
+    assert strat.seed_days_needed() * 0.66 >= need_trading
+    assert strat.seed_days_needed() > 400   # must beat the seeder's bare default
+
+
 def test_factor_warmup_before_seed_then_on_seeded_emits():
     """Regression: LiveRunner runs warmup (decide() -> generate_signals) BEFORE
     _seed_daily_panels. That first pass rebalances an EMPTY panel and advances
