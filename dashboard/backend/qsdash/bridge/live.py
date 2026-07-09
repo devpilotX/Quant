@@ -131,10 +131,12 @@ class LiveRunner:
             return
         self.cfg.kelly.explore_floor = max(self.cfg.kelly.explore_floor,
                                            self.cfg.engine.paper_explore_floor)
-        self.cfg.sizing.enforce_cost_gate = False
+        if self.cfg.engine.paper_explore_bypass_cost_gate:
+            self.cfg.sizing.enforce_cost_gate = False
+        gate = "bypassed" if not self.cfg.sizing.enforce_cost_gate else "ENFORCED"
         log.warning("PAPER EXPLORATION ON: kelly.explore_floor=%.3f, cost gate "
-                    "bypassed — paper-validation trades only (live/backtest are "
-                    "unaffected and stay honest)", self.cfg.kelly.explore_floor)
+                    "%s — paper-validation trades only (live/backtest are "
+                    "unaffected and stay honest)", self.cfg.kelly.explore_floor, gate)
 
     def _merge_instruments(self, master: dict) -> dict:
         from quantsys.core.types import Instrument

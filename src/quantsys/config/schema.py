@@ -37,6 +37,11 @@ class EngineConfig(BaseModel):
     # stays intact) or in the backtest. Off => paper behaves like live/backtest.
     paper_explore: bool = True
     paper_explore_floor: float = 0.05   # forced per-strategy Kelly f in paper
+    # When exploring in paper, also bypass the cost gate (let trades through even
+    # if they don't cover costs). True = the original plumbing-exercise behavior;
+    # False = keep the honest cost gate so paper only trades where the expected
+    # edge covers costs (paper P&L then reflects how live would actually run).
+    paper_explore_bypass_cost_gate: bool = True
 
 
 class SizingConfig(BaseModel):

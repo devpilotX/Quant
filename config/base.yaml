@@ -41,6 +41,12 @@ engine:
   decision_bar_minutes: 15
   index_symbol: NIFTY
   min_order_frac: 0.0001         # dust floor = max(Rs5k, 1bp of equity)
+  # 2026-07-09: keep exercising the paper plumbing (explore floor stays on) but
+  # STOP bypassing the cost gate. ~half the paper losses were cost-uncovered
+  # churn from force-trading with the gate off; enforcing it makes paper trade
+  # only where expected edge covers costs, so the paper P&L reflects how live
+  # would actually run (owner decision, quality-first). Code default stays True.
+  paper_explore_bypass_cost_gate: false
 
 sizing:
   base_risk_frac: 0.006          # 0.6% of equity at risk per unit trade
