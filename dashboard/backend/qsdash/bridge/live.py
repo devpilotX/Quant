@@ -239,6 +239,7 @@ class LiveRunner:
         if isinstance(self.broker, PaperBroker):
             self.broker.cash = capital
             self.broker.realized_total = 0.0
+            self.broker.fees_total = 0.0   # else a re-baseline inherits old costs
             self.broker.persist_cash()
 
     def set_strategy_enabled(self, name: str, enabled: bool) -> None:

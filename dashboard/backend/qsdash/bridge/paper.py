@@ -56,7 +56,8 @@ class PaperBroker:
         self.cost_model = cost_model
         self.publisher = publisher
         self.positions: dict[str, Position] = {}
-        self.realized_total = 0.0
+        self.realized_total = 0.0   # NET of fees (see execute())
+        self.fees_total = 0.0       # cumulative costs, so gross stays derivable
         self._open_rows: dict[str, int] = {}  # symbol -> positions.id
         # trade alerts are collected during fills and emitted AFTER the fill
         # transaction commits, so an alert only ever describes a persisted trade
@@ -82,8 +83,10 @@ class PaperBroker:
                 try:
                     self.cash = float(v["cash"])
                     self.realized_total = float(v.get("realized_total", 0.0))
-                    log.info("paper broker cash restored: cash=%.2f realized=%.2f",
-                             self.cash, self.realized_total)
+                    self.fees_total = float(v.get("fees_total", 0.0))
+                    log.info("paper broker cash restored: cash=%.2f "
+                             "realized_net=%.2f fees=%.2f",
+                             self.cash, self.realized_total, self.fees_total)
                 except (KeyError, TypeError, ValueError):
                     log.warning("ignoring malformed %s=%r", _CASH_STATE_KEY, v)
         finally:
@@ -94,7 +97,8 @@ class PaperBroker:
         fills and the ledger commit (or roll back) together."""
         row = sess.query(RuntimeConfig).filter(
             RuntimeConfig.key == _CASH_STATE_KEY).first()
-        val = {"v": {"cash": self.cash, "realized_total": self.realized_total}}
+        val = {"v": {"cash": self.cash, "realized_total": self.realized_total,
+                     "fees_total": self.fees_total}}
         if row is None:
             sess.add(RuntimeConfig(key=_CASH_STATE_KEY, value=val,
                                    updated_by="engine"))
@@ -223,7 +227,18 @@ class PaperBroker:
         # cash: trade flow + fees
         self.cash -= qty * px * inst.point_value
         self.cash -= cb.total
-        self.realized_total += realized
+        # Reported P&L is NET. `realized` is the raw price difference
+        # (close_qty * (px - avg_price) * point_value) with no costs in it, so
+        # accumulating it alone made every headline understate the truth by the
+        # whole fee bill: on 2026-07-25 the dashboard showed -Rs 1.74 lakh
+        # realized while the actual net was -Rs 9.15 lakh, a 5.3x understatement
+        # -- fees left `cash` correctly but never reached the number a human
+        # reads. equity() is cash + mtm and is unaffected either way, so this is
+        # purely a reporting correction. Gross stays available per trade
+        # (positions.realized_pnl / pnl_attribution.gross_pnl) and in aggregate
+        # via fees_total, so the cost story is still fully decomposable.
+        self.fees_total += cb.total
+        self.realized_total += realized - cb.total
 
         self.publisher.publish("orders", {
             "id": order.id, "client_order_id": coid, "ts": ts.isoformat(),

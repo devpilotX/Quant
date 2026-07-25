@@ -121,6 +121,7 @@ class Runner:
     def reset_paper_capital(self, capital: float) -> None:
         self.broker.cash = capital
         self.broker.realized_total = 0.0
+        self.broker.fees_total = 0.0   # else a re-baseline inherits old costs
         log.info("paper capital reset to %.0f", capital)
 
     def set_strategy_enabled(self, name: str, enabled: bool) -> None:

@@ -302,13 +302,34 @@ def pnl_metrics(mode: str | None = None, db: Session = Depends(get_db)):
 
     closed = (db.query(PositionRow)
               .filter(PositionRow.mode == mode, PositionRow.status == "closed").all())
-    wins = [p for p in closed if p.realized_pnl > 0]
-    losses = [p for p in closed if p.realized_pnl < 0]
+    # positions.realized_pnl is GROSS (raw price difference); the cost of the
+    # trade lives in fees_paid. Reporting hit rate / profit factor off the gross
+    # column flattered the book badly: over 2026-07-02..25 trend showed a 34.1%
+    # gross hit rate against a 12.3% NET one, and factor 44.2% vs 17.3% — the
+    # trades were directionally fine and the fees ate them. Headline metrics are
+    # NET; the *_gross twins stay so the gap remains visible, because that gap
+    # IS the finding.
+    def _net(p) -> float:
+        return p.realized_pnl - p.fees_paid
+
+    wins = [p for p in closed if _net(p) > 0]
+    losses = [p for p in closed if _net(p) < 0]
     out["n_closed_trades"] = len(closed)
     out["hit_rate"] = len(wins) / len(closed) if closed else None
-    gp = sum(p.realized_pnl for p in wins)
-    gl = -sum(p.realized_pnl for p in losses)
+    gp = sum(_net(p) for p in wins)
+    gl = -sum(_net(p) for p in losses)
     out["profit_factor"] = (gp / gl) if gl > 0 else None
+
+    gross_wins = [p for p in closed if p.realized_pnl > 0]
+    gross_losses = [p for p in closed if p.realized_pnl < 0]
+    out["hit_rate_gross"] = len(gross_wins) / len(closed) if closed else None
+    ggp = sum(p.realized_pnl for p in gross_wins)
+    ggl = -sum(p.realized_pnl for p in gross_losses)
+    out["profit_factor_gross"] = (ggp / ggl) if ggl > 0 else None
+    out["closed_gross_pnl"] = float(sum(p.realized_pnl for p in closed))
+    out["closed_fees"] = float(sum(p.fees_paid for p in closed))
+    out["closed_net_pnl"] = float(sum(_net(p) for p in closed))
+
     total_fees = db.query(func.sum(FillRow.fees_total)).filter(FillRow.mode == mode).scalar() or 0.0
     gross_traded = db.query(
         func.sum(func.abs(FillRow.qty) * FillRow.price)

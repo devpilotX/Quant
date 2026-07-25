@@ -198,6 +198,7 @@ def test_paper_cash_and_realized_survive_restart(paper_runner, db):
     r = paper_runner
     r.broker.cash = 987_654.0
     r.broker.realized_total = 4_321.0
+    r.broker.fees_total = 765.0
     r.broker.persist_cash()
 
     from qsdash.bridge.paper import PaperBroker
@@ -207,6 +208,19 @@ def test_paper_cash_and_realized_survive_restart(paper_runner, db):
     fresh.load_open_state()
     assert fresh.cash == 987_654.0
     assert fresh.realized_total == 4_321.0
+    assert fresh.fees_total == 765.0
+
+
+def test_reported_realized_is_net_of_fees_on_reset(paper_runner, db):
+    """A capital re-baseline must clear the fee accumulator too, or the fresh
+    study inherits the old one's costs and its net P&L starts in the hole."""
+    r = paper_runner
+    r.broker.realized_total = -5_000.0
+    r.broker.fees_total = 12_345.0
+    r.reset_paper_capital(1_000_000.0)
+    assert r.broker.cash == 1_000_000.0
+    assert r.broker.realized_total == 0.0
+    assert r.broker.fees_total == 0.0
 
 
 def test_durable_capital_applied_once_not_every_restart(paper_runner, db):
