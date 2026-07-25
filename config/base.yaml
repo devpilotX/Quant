@@ -47,6 +47,20 @@ engine:
   # only where expected edge covers costs, so the paper P&L reflects how live
   # would actually run (owner decision, quality-first). Code default stays True.
   paper_explore_bypass_cost_gate: false
+  # 2026-07-26: exploration OFF. The plumbing it existed to exercise is long
+  # since proven (3,352 fills, full order->fill->reconcile->P&L path), and the
+  # floor had become the study's main loss engine: the allocator correctly cut
+  # trend and expiry to f=0.000 on clearly negative evidence, and the floor
+  # forced them back to 0.050 anyway — 1,774 overrides over 2026-07-02..25
+  # (trend 646, expiry 646, factor 282, meanrev 125, downshock 75), keeping a
+  # Sharpe -4.16 sleeve funded by fiat. It is edge-agnostic BY DESIGN ("NOT
+  # withdrawn by negative evidence", allocation.py), so no amount of adverse
+  # forward evidence could ever switch it off. Off => paper allocates exactly
+  # like live/backtest, which is what a forward study is supposed to measure.
+  # NOTE: this does NOT disable kelly.ramp_floor (0.08) incubation — sleeves
+  # with merely weak (not clearly negative) edge still get the incubation
+  # allocation. Only the edge-agnostic override is gone.
+  paper_explore: false
 
 sizing:
   base_risk_frac: 0.006          # 0.6% of equity at risk per unit trade
