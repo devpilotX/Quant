@@ -56,6 +56,20 @@ class SizingConfig(BaseModel):
     # Off by default: at a small float the honest answer stays "too big to trade".
     min_lot_promotion: bool = False
     promotion_max_risk_frac: float = Field(0.005, gt=0, le=0.02)
+    # ...AND iff the risk budget already wanted at least this fraction of a lot.
+    # Added 2026-07-26. promotion_max_risk_frac alone bounds the ABSOLUTE rupee
+    # risk of the promoted lot but says nothing about how far it overshoots what
+    # the risk model actually asked for, so "round up to one lot" was silently
+    # manufacturing positions ~10x the intended size. Over 2026-07-02..25 all
+    # 852 promotions did this and NONE was genuine rounding: BANKNIFTY-FUT
+    # wanted a median 0.097 of a lot (max 0.249), NIFTY-FUT 0.113 (max 0.464),
+    # i.e. 12.5x and 9.6x mean inflation. Those two symbols then produced
+    # -Rs 1.24 lakh of gross P&L = 71% of the whole study's gross loss from
+    # just 14 trades. At 0.5 the rule means what its name says: promote only
+    # when the target is already at least half a lot, so rounding to the
+    # nearest lot goes UP. Anything smaller is a different trade, not a
+    # rounding, and the group correctly drops to zero instead.
+    promotion_min_lot_frac: float = Field(0.5, gt=0.0, le=1.0)
 
 
 class KellyConfig(BaseModel):

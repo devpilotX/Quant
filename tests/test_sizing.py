@@ -155,6 +155,61 @@ def test_min_lot_promotion_respects_equity_risk_cap():
     assert not any(a.rule == "min_lot_promotion" for a in audits)
 
 
+def test_min_lot_promotion_rejects_size_manufacture():
+    """Promotion must be ROUNDING, not size manufacture.
+
+    Regression for the Study-2 defect found 2026-07-26: promotion_max_risk_frac
+    bounds the promoted lot's ABSOLUTE rupee risk but not how far it overshoots
+    what the risk model asked for. All 852 promotions over 2026-07-02..25 turned
+    a fraction of a lot into a whole one — BANKNIFTY-FUT wanted a median 0.097
+    of a lot, NIFTY-FUT 0.113 — a ~10x inflation, and those two symbols were 71%
+    of the study's entire gross loss from 14 trades.
+
+    Here the lot's risk (650) sits far inside the cap (0.5% of 5e7 = 250,000),
+    so ONLY the new promotion_min_lot_frac test can block it."""
+    state = _state_with({"F": 100.0}, equity=50_000_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 65})
+    sizer = SizingEngine(SizingConfig(min_lot_promotion=True),
+                         CostModel(CostConfig()), 0.0)
+    sig = Signal("s", "F", 1.0, stop_distance=10.0)
+    # budget 65 / stop 10 -> 6.5 units = 0.1 of a 65 lot: NIFTY-FUT's real median
+    book = sizer.build_raw([sig], {"s": 1.0}, 65.0, state, [])
+    audits = []
+    assert sizer.finalize(book, _tier(), state, {}, {}, audits) == []
+    assert not any(a.rule == "min_lot_promotion" for a in audits)
+    assert any(a.rule == "rounds_to_zero" for a in audits)
+
+
+def test_min_lot_promotion_still_rounds_up_from_half_a_lot():
+    """The complement: once the budget genuinely reaches half a lot, rounding to
+    the nearest lot goes UP and promotion still fires."""
+    state = _state_with({"F": 100.0}, equity=50_000_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 65})
+    sizer = SizingEngine(SizingConfig(min_lot_promotion=True),
+                         CostModel(CostConfig()), 0.0)
+    sig = Signal("s", "F", 1.0, stop_distance=10.0)
+    # budget 400 / stop 10 -> 40 units = 0.615 of a lot
+    book = sizer.build_raw([sig], {"s": 1.0}, 400.0, state, [])
+    audits = []
+    assert [t.qty for t in sizer.finalize(book, _tier(), state, {}, {}, audits)] == [65]
+    assert any(a.rule == "min_lot_promotion" for a in audits)
+
+
+def test_min_lot_promotion_threshold_is_configurable():
+    """A deployment that accepts more overshoot can say so explicitly, rather
+    than the bound being implicit in the risk cap."""
+    state = _state_with({"F": 100.0}, equity=50_000_000.0,
+                        **{"kind": InstrumentKind.FUTURE, "lot_size": 65})
+    sig = Signal("s", "F", 1.0, stop_distance=10.0)
+    lenient = SizingEngine(SizingConfig(min_lot_promotion=True,
+                                        promotion_min_lot_frac=0.05),
+                           CostModel(CostConfig()), 0.0)
+    book = lenient.build_raw([sig], {"s": 1.0}, 65.0, state, [])   # 0.1 of a lot
+    audits = []
+    assert [t.qty for t in lenient.finalize(book, _tier(), state, {}, {}, audits)] == [65]
+    assert any(a.rule == "min_lot_promotion" for a in audits)
+
+
 def test_min_lot_promotion_never_touches_spread_legs():
     """Promoting one leg of a pair would corrupt the hedge ratio — multi-leg
     groups are excluded from promotion and still drop whole."""

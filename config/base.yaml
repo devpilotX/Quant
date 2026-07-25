@@ -67,6 +67,12 @@ sizing:
   max_signals_per_strategy: 40   # factor emits a 24-name basket; don't truncate it
   min_lot_promotion: true        # index-futures unlock (single-leg, risk-capped)
   promotion_max_risk_frac: 0.005
+  # 2026-07-26: bound the OVERSHOOT as well as the absolute risk. All 852
+  # promotions in 2026-07-02..25 inflated size ~10x over the risk target
+  # (BANKNIFTY-FUT median 0.097 of a lot, NIFTY-FUT 0.113) and those two
+  # symbols alone were 71% of the study's gross loss. 0.5 = promote only when
+  # the target already reached half a lot, i.e. real rounding.
+  promotion_min_lot_frac: 0.5
 
 kelly:
   regime_tilt_beta: 0.4          # learned regime-conditional tilt, clip [0.5, 1.5]

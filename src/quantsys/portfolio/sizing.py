@@ -178,11 +178,19 @@ class SizingEngine:
         """Index-futures unlock: one contract is the market's minimum ticket, so
         a lot-sized FUTURE whose risk budget rounds below one lot may take
         exactly ONE lot iff that lot's rupee risk stays within
-        promotion_max_risk_frac of equity. Single-leg groups only — promoting
-        one leg of a spread would corrupt the hedge ratio."""
+        promotion_max_risk_frac of equity AND the budget already wanted at least
+        promotion_min_lot_frac of a lot. Single-leg groups only — promoting one
+        leg of a spread would corrupt the hedge ratio.
+
+        The second test is what makes this a ROUNDING rule. Without it the risk
+        cap alone let a target of 0.10 lots become a full lot — a 10x size
+        manufacture, not a rounding — which is how 852 promotions turned
+        BANKNIFTY/NIFTY futures into 71% of Study 2's gross loss."""
         if not self.cfg.min_lot_promotion or len(comps) != 1:
             return False
         if inst.kind != InstrumentKind.FUTURE or inst.lot_size <= 1:
+            return False
+        if abs(c.qty) < self.cfg.promotion_min_lot_frac * inst.lot_size:
             return False
         lot_risk = inst.lot_size * c.stop_distance * inst.point_value
         return (state.equity > 0
