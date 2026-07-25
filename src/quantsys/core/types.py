@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Mapping
 
@@ -28,6 +28,41 @@ TRADING_DAYS_PER_YEAR = 252
 SESSION_MINUTES = 375  # 09:15-15:30 IST
 SESSION_OPEN = (9, 15)
 SESSION_CLOSE = (15, 30)
+
+# Full-day NSE equity/F&O closures. Weekend-falling holidays are deliberately
+# omitted — the weekday test in ``is_trading_day`` already covers them.
+#
+# Provenance: cross-checked against two independent published 2026 calendars on
+# 2026-07-26 AND validated against our own recorded feed — every date below
+# produced 100% zero-volume snapshot bars in ``market_bars`` (e.g. Muharram,
+# Fri 2026-06-26: 350/350 synthetic, yet the engine still cut 11 fills on it).
+#
+# The Diwali Muhurat session (Sun 2026-11-08, ~1h in the evening) is treated as
+# CLOSED: a symbolic one-hour Sunday session is not worth relaxing the weekend
+# guard for, and no sleeve here has an edge that needs it.
+#
+# MAINTENANCE: append the next year's list from the official NSE circular each
+# January (https://www.nseindia.com/resources/exchange-communication-holidays).
+# A missing year degrades safely — holidays then fall back to the
+# zero-volume/flat-bar guard rather than silently trading fabricated bars.
+NSE_HOLIDAYS: frozenset[date] = frozenset({
+    date(2026, 1, 15),   # Maharashtra municipal elections
+    date(2026, 1, 26),   # Republic Day
+    date(2026, 3, 3),    # Holi
+    date(2026, 3, 26),   # Shri Ram Navami
+    date(2026, 3, 31),   # Shri Mahavir Jayanti
+    date(2026, 4, 3),    # Good Friday
+    date(2026, 4, 14),   # Dr. Baba Saheb Ambedkar Jayanti
+    date(2026, 5, 1),    # Maharashtra Day
+    date(2026, 5, 28),   # Bakri Id
+    date(2026, 6, 26),   # Muharram
+    date(2026, 9, 14),   # Ganesh Chaturthi
+    date(2026, 10, 2),   # Mahatma Gandhi Jayanti
+    date(2026, 10, 20),  # Dussehra
+    date(2026, 11, 10),  # Diwali Balipratipada
+    date(2026, 11, 24),  # Prakash Gurpurb Sri Guru Nanak Dev
+    date(2026, 12, 25),  # Christmas
+})
 
 # IST is the engine's single clock (see module docstring): every timestamp is
 # naive and means exchange wall-clock. ``now_ist`` is what the live data layer
@@ -217,7 +252,26 @@ def session_date(ts: datetime):
     return ts.date()
 
 
+def is_trading_day(d: date | datetime) -> bool:
+    """True iff ``d`` is an NSE trading day (weekday and not a full closure).
+
+    Before 2026-07-26 the session test looked at the clock ONLY, so every
+    Saturday, Sunday and exchange holiday between 09:15 and 15:30 counted as an
+    open session. The engine therefore decided and "traded" on days the market
+    was shut, against snapshot ticks the broker replays when it is closed: 32%
+    of all recorded bars were zero-volume flat fabrications, and Forward Study 2
+    burned real modelled fees on 4 Saturdays, 3 Sundays and a Muharram holiday.
+    ``BarAggregator.on_tick`` rejects off-session ticks so no such bar even
+    forms; a year missing from ``NSE_HOLIDAYS`` degrades to the pre-fix
+    behaviour for that day only, never worse.
+    """
+    d = d.date() if isinstance(d, datetime) else d
+    return d.weekday() < 5 and d not in NSE_HOLIDAYS
+
+
 def is_session_open(ts: datetime) -> bool:
+    if not is_trading_day(ts):
+        return False
     t = (ts.hour, ts.minute)
     return SESSION_OPEN <= t < SESSION_CLOSE
 

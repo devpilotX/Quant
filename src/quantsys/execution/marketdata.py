@@ -58,6 +58,21 @@ class BarAggregator:
                 cum_volume: float | None = None) -> None:
         if not (price > 0):
             return
+        # Reject anything stamped outside a real trading session. When the
+        # market is shut (weekend / exchange holiday / after 15:30) the broker
+        # keeps replaying its last snapshot: identical price, unchanged
+        # cumulative volume. That produced a flat zero-volume "bar" every
+        # bucket, and because the old is_session_open() only looked at the
+        # clock, the engine decided and traded on them.
+        #
+        # Measured over Study 2's weekday sessions: post-15:15 buckets were 61%
+        # flat-zero fabrications (1252/2069) while genuine in-session buckets
+        # were 0.025% (5/20349). Gating the tick is therefore sufficient; an
+        # additional "drop flat zero-volume bars" emit filter was considered and
+        # REJECTED — it would also discard legitimate single-tick bars for thin
+        # names to recover those 5, silently thinning the panel.
+        if not is_session_open(ts):
+            return
         bucket = floor_to_bucket(ts, self.bar_minutes)
         with self._lock:
             cur = self._building.get(symbol)
