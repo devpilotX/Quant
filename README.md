@@ -5,11 +5,19 @@ via Angel One SmartAPI. **Complete system: decision brain + event-driven
 backtester + execution layer + dashboard control plane + standalone research
 kit**, deployed in paper mode on a VPS.
 
-## Status (2026-07-02) — Forward Study 2 running on the paper VPS
+## Status (2026-07-26) — Study 2 TERMINATED (contaminated); awaiting Study 3 registration
 
 - **Deployed**: https://quant.devpilotx.com — paper engine on live Angel One
   data. `QS_LIVE_ARMED=0`: real money stays OFF, and the 2026-06-11 credential
   leak means rotation is a hard precondition for ever arming live (GOLIVE §0).
+- **Study 2 void on data integrity (2026-07-26)**: `is_session_open()` checked
+  only the clock, so weekends and exchange holidays counted as open sessions —
+  32% of recorded bars were zero-volume fabrications and the engine filled 769
+  orders on days NSE never opened. Terminated, not cleaned (weekend positions
+  were carried into weekday sessions). Full verdict + the three secondary
+  defects fixed alongside: `docs/FORWARD_STUDY_2.md`. The contaminated book is
+  archived under `mode='paper_s2'` — nothing deleted; the paper broker is
+  re-baselined to the ₹15cr float awaiting a Study 3 registration.
 - **Research verdict unchanged**: the 2017–26 alpha search is CLOSED — nothing
   cleared the deployment gate (`docs/RESEARCH_CLOSEOUT.md`). What runs now is
   the closeout's one sanctioned continuation: a **pre-registered, forward-only
@@ -34,7 +42,9 @@ kit**, deployed in paper mode on a VPS.
 - **Universe**: 48 liquid large-caps + NIFTY/BANKNIFTY near-month futures
   (TATAMOTORS → TMPV/TMCV after the 2025 demerger). Index futures trade via
   **risk-capped min-lot promotion** (a 1-lot minimum ticket is allowed iff it
-  risks ≤ 0.5% of equity).
+  risks ≤ 0.5% of equity **and** the risk target already reached ≥ half a lot —
+  the second bound added 2026-07-26, after promotion was found inflating size
+  ~10x rather than rounding it).
 - **Ops automation** (`deploy/systemd/`): pre-open engine recycle 08:50 IST
   (cash-safe), daily self-check 09:55 IST (GREEN/RED log + loud unit failure),
   down-shock tracker 20:30 IST, weekly backtest refresh Sat 11:00 IST; the
@@ -213,8 +223,8 @@ events to the browser in real time.
   (adapter + `QS_LIVE_ARMED` + passing real backtest). See `docs/GOLIVE.md`,
   `docs/DECISIONS.md` (#17–26), and `deploy/scripts/preflight.py`.
 
-Test counts: **191 engine tests**, **60 dashboard backend tests** (1 env-skip),
-all green (2026-07-02, post-Study-2).
+Test counts: **204 engine tests**, **62 dashboard backend tests** (1 env-skip),
+all green (2026-07-26, post-study-integrity fixes).
 
 ## Research tooling (standalone) — `quantsys/research/`
 
@@ -256,8 +266,11 @@ and validators are pure and unit-tested (`tests/test_research.py`,
 
 1. **Rotate the Angel One credentials** (leaked 2026-06-11; still the hard
    blocker for any live arming) and fill Telegram alert creds in `deploy/.env`.
-2. **Forward Study 2 first read: 2027-01-05** (`docs/FORWARD_STUDY_2.md`) —
-   observational only; the livegate criteria stand unchanged.
+2. **Register Forward Study 3.** Study 2 was terminated 2026-07-26 as
+   contaminated (calendar defect → 32% fabricated bars, trading on weekends and
+   holidays); verdict appended to `docs/FORWARD_STUDY_2.md`. A new registration
+   must first resolve the open structural issue: `trend` declares an expected
+   edge of ~12 bps against a measured ~28 bps cash-equity round-trip cost.
 3. **voloptions sleeve** stays disabled until a live option-chain feed +
    OptionUniverseManager exist.
 4. Off-VPS backup replication (`deploy/backups/` rsync target) + a restore

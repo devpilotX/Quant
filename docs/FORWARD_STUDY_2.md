@@ -102,3 +102,65 @@ Unchanged from Study 1: 08:50 IST engine recycle (now cash-safe), 09:55 self-che
 20:30 down-shock tracker (control), weekly backtest refresh â€” â˜… moved to Saturday
 11:00 IST with socket timeouts (the Sunday-02:30 run hung on the broker's maintenance
 window, root-caused 2026-07-02).
+
+## FINAL VERDICT (appended 2026-07-26, per the registration's append-only rule)
+
+**TERMINATED — CONTAMINATED. No strategy conclusion may be drawn from this run.**
+
+The study is void on data integrity, not on results. `is_session_open()` tested the
+wall clock only — no weekday test, no holiday calendar — so 09:15–15:30 on any
+Saturday, Sunday or exchange holiday counted as an open session. The engine therefore
+decided and filled against the snapshot ticks Angel One replays into a shut market
+(identical price, unchanged cumulative volume ? a flat zero-volume "bar" every bucket).
+
+Measured over 2026-07-02..25 on the recorded book:
+
+| Evidence | Value |
+|---|---|
+| Zero-volume flat fabricated bars | **10,497 / 32,561 = 32.2%** of all bars |
+| Non-trading days traded | 4 Saturdays, 3 Sundays, + Muharram (Fri 2026-06-26) |
+| Fills on days NSE never opened | **769** (~Rs 1.03 lakh of modelled fees) |
+| Post-15:15 buckets that were fabrications | 1,252 / 2,069 = 61% |
+
+Those weekend positions were carried into the following weekday sessions, so the
+contamination cannot be subtracted out — hence termination rather than cleaning.
+
+### Secondary defects found in the same review (all fixed)
+
+1. **`kelly.explore_floor` overrode the allocator's own verdict 1,774 times.** The
+   allocator correctly cut trend and expiry to `f=0.000` on clearly negative evidence
+   (trend forward Sharpe **-4.16**) and the floor forced them back to 0.050 every
+   time. It is edge-agnostic by design ("NOT withdrawn by negative evidence"), so no
+   amount of adverse forward evidence could ever switch it off.
+2. **Min-lot promotion was manufacturing size, not rounding.** All 852 promotions
+   inflated the risk target ~10x (BANKNIFTY-FUT median 0.097 of a lot, NIFTY-FUT
+   0.113). Those two symbols produced -Rs 1.24 lakh gross from 14 trades = **71% of
+   the study's entire gross loss** — on a sleeve the allocator wanted at f=0.
+3. **Reported P&L was gross.** The dashboard showed -Rs 1,73,884 realized against a
+   true net of -Rs 9,15,037: a **5.3x understatement**. Hit rate and profit factor
+   were gross too (36.8% vs **13.7%** net; PF 0.560 vs **0.139** net).
+4. Structural, NOT fixed here (needs a research decision, not a patch): `trend`
+   declares `expected_edge_R = 0.12` ˜ 12 bps of notional against a measured ~28 bps
+   round-trip cost in the cash-equity delivery segment. Recomputing the actual fills
+   under a single-stock-futures cost structure gives 14.14 ? 7.33 bps
+   (-Rs 3,38,920, 48%) — which halves the bleed but does not create edge, because
+   gross P&L was already negative.
+
+### Disposition
+
+- Rows retagged `mode='paper'` ? **`paper_s2`** (9,815 rows across 7 tables). Nothing
+  deleted: the evidence above stays queryable and is the justification for the fixes.
+- Paper broker re-baselined to the full Rs 15cr float, `realized_total=0`,
+  `fees_total=0`. The reset is mandatory, not cosmetic: the stored -173,883.91 was
+  GROSS and the accumulator is net from this commit on.
+- Pre-fix DB snapshot: `deploy/backups/pre-fix-20260726/quantsys-pre-fix.sql`.
+- `market_bars` deliberately left intact — it feeds only dashboard display and the
+  position price fallback, no decision path, and the fabricated rows are the evidence.
+
+### Precondition for any Study 3
+
+A fresh pre-registration. It must state up front that the alpha search is CLOSED
+(`docs/RESEARCH_CLOSEOUT.md`: gate 3/5, deflated Sharpe 0.69 < 0.95, PBO 0.84 > 0.50)
+and that item 4 above — declared edge below round-trip cost — is unresolved. A forward
+study cannot fix a negative-expectancy specification; it can only measure it honestly,
+which is now what it will do.
